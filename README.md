@@ -26,16 +26,14 @@ beyond Python and Docker:
    workload matched by id); `tools/build_site.py` writes the page (with `site/generate_site.py` and
    `site/template.html`) and the data of the day, and the job publishes them to this repository's `gh-pages`.
 
-**A foreign run is the fallback.** A source whose image cannot be pulled, fails, or writes no data file in the
-shape below falls back to the run it publishes itself (`benchmarks/latest.json` on its `gh-pages`, the manifest's
-`url`). The page marks it a foreign run (its group reads ".NET (foreign run)", its header fact says "foreign run"
-and the method says why), because its figures come from another runner on another night: a figure that crosses to
-a foreign run is a guide, every other figure is a measurement. A source that can be neither run nor read is
-reported in the log and on the page and skipped; it never stops the others from being published.
+**One runner, no fallback.** Every figure on the page was measured on this repository's runner, in one job. A source
+whose image cannot be pulled, fails, or writes no data file in the shape below is shown as "not run tonight", with
+the reason, and its engines have no rows that night; the previous nights are in the daily data. It never stops the
+other sources from being published.
 
 ## The results contract
 
-A source's image writes, and a source publishes as its fallback, one data file in the results-page shape. The
+A source's image writes one data file in the results-page shape. The
 plan's wording of what a source publishes:
 
 - `benchmarks/latest.json`: the run, in the results-page data shape (the `corvus-benchmark-results-page` skill:
@@ -91,19 +89,18 @@ published run. The out directory is writable by any user, so the image may run a
 
 ## Registering a source
 
-1. In the engine repository, publish the image above from its release workflow, and publish
-   `benchmarks/latest.json` in the same shape to its `gh-pages` branch from its own nightly benchmarks workflow
-   (the fallback). The .NET repository is the model: `.github/workflows/benchmarks.yml` and
-   `.github/scripts/Update-GhPages.ps1` in
+1. In the engine repository, publish the image above (`:latest` from main, and the version tag from each release),
+   with a smoke run of it in the same workflow. The engine repository publishes no page and no results of its own:
+   this site is the one page. The .NET repository is the model: `.github/workflows/harness-image.yml` in
    [corvus-dotnet/Corvus.Regex.Ecma262](https://github.com/corvus-dotnet/Corvus.Regex.Ecma262).
 2. Add one entry to `sources.json` here:
 
    ```json
-   { "id": "rs", "language": "Rust", "url": "https://raw.githubusercontent.com/corvus-dotnet/corvus-regex-ecma262-rs/gh-pages/benchmarks/latest.json", "repo": "corvus-dotnet/corvus-regex-ecma262-rs", "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rust", "ref": "latest-release" }
+   { "id": "rust", "language": "Rust", "repo": "corvus-dotnet/corvus-regex-ecma262-rs", "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rs", "ref": "latest-release" }
    ```
 
    `id` is short and unique (it prefixes the implementation ids, and so appears in the page's address);
-   `language` is the group the engines appear under; `url` is the published fallback; `image` is the image without
+   `language` is the group the engines appear under; `image` is the image without
    a tag; `ref` is `latest-release` (the release's tag, else `latest`), the only policy so far. An optional
    `timeoutMinutes` (default 150) bounds the run.
 
@@ -120,13 +117,6 @@ python3 tools/sources.py run --workloads workloads.json --out out-data
 python3 tools/merge.py --runs out-data/runs.json --out data/latest.json
 python3 tools/build_site.py --data data/latest.json --out out
 # then open out/index.html
-```
-
-Or only the page, from every source's published run (each marked a foreign run):
-
-```sh
-python3 tools/merge.py --out data/latest.json
-python3 tools/build_site.py --data data/latest.json --out out
 ```
 
 A source's `url` in a copy of the manifest may be a local path (`--sources my-sources.json`), to try a source's data

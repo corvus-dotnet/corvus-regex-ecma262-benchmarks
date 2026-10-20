@@ -17,7 +17,7 @@
         which writes /out/industry.json. Writes out-data/runs.json: per source, the data file (when it has the
         results-page shape), the image and tag that ran, the image's digest, the time it ran, and this machine's
         description. An image that cannot be pulled, fails or writes no usable file is recorded as such;
-        tools/merge.py then falls back to the source's published latest.json and marks it a foreign run.
+        tools/merge.py then shows the source as not run tonight.
 
 Python 3 standard library only. GITHUB_TOKEN, when set, authenticates the GitHub API calls.
 """

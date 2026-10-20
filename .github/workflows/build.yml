@@ -4,8 +4,8 @@
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
 # its latest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
-# here beyond Python and Docker. tools/merge.py merges the files; a source whose image cannot be pulled or fails
-# falls back to its published latest.json, marked a foreign run. The page and the data are published to gh-pages:
+# here beyond Python and Docker. tools/merge.py merges the files; a source whose image cannot be pulled or fails is
+# shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
 # the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces
 # the branch.
 name: build
@@ -36,7 +36,7 @@ jobs:
         python-version: '3.12'
     - name: Write the workloads
       # The list comes from one place, the .NET repository's workloads.py, at its latest release. Without it no image
-      # can run, and every source falls back to its published run.
+      # can run, and every source is shown as not run.
       id: workloads
       continue-on-error: true
       env:
