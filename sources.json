@@ -7,6 +7,14 @@
       "repo": "corvus-dotnet/Corvus.Regex.Ecma262",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-dotnet"
+    },
+    {
+      "id": "rust",
+      "language": "Rust",
+      "url": "https://raw.githubusercontent.com/corvus-dotnet/corvus-regex-ecma262-rs/gh-pages/benchmarks/latest.json",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-rs",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rs"
     }
   ]
 }
