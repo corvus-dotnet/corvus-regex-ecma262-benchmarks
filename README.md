@@ -3,29 +3,40 @@
 One page that shows the benchmark runs of every Corvus ECMA-262 regex engine side by side, with each platform's own
 regex engines and V8 as the common reference, over the Industry workloads of dotnet/performance.
 
-The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every day at 03:30 UTC, after
-the engines' nightly runs. The merged data is at `data/latest.json` beside it, and every day's data is kept under
-`data/runs/`.
+The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every night at 03:30 UTC. The
+merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`.
 
-**A caveat on reading it.** The runs come from different runners on different nights, so a figure across languages
-is a guide and a figure within a language is a measurement. Each engine repository runs its engines, its platform's
-competitors and V8 on one runner in one job, so the figures of one source compare with each other; the figures of two
-sources were measured on two machines.
+**Every engine runs here.** Figures merged from runs on different runners are not comparable, so this repository's
+nightly workflow runs every engine itself: one job on one runner runs each engine repository's published container
+image, one after another, so every figure on the page was measured on one machine in one hour.
 
 ## How it works
 
-An engine repository is not responsible for a benchmark site. Its nightly benchmarks workflow runs its engines and
-its platform's competitors on one runner, and publishes the run as data, nothing else, to its own `gh-pages`. This
-repository's daily workflow (`.github/workflows/build.yml`) fetches every source listed in `sources.json`, merges
-them into one data file (`tools/merge.py`: implementations grouped by language, V8 once, every workload matched by
-id), writes the page with each source's commit, time and runner in the header (`tools/build_site.py`, which uses
-`site/generate_site.py` and `site/template.html`), and publishes it to this repository's `gh-pages`. A source that
-cannot be fetched, or whose data does not have the shape below, is reported in the log and on the page and skipped;
-it never stops the others from being published.
+`.github/workflows/build.yml` is one job on `ubuntu-latest` (at most 340 minutes), with no toolchain installed
+beyond Python and Docker:
+
+1. `tools/sources.py workloads` writes the Industry workloads once to `workloads.json`, with the .NET repository's
+   `tools/benchmarks/v8/workloads.py` at its latest release (the list comes from one place).
+2. `tools/sources.py texts` downloads their texts once (dotnet/performance's gzipped files, the URLs of the .NET
+   repository's `Inputs.cs`) into `~/.local/share/corvus-regex-benchmarks/`, cached between runs.
+3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's latest GitHub release (or
+   `latest` when there is no release or that tag cannot be pulled) and runs it as the image contract below says,
+   into `out-data/<id>/`, one source after another.
+4. `tools/merge.py` merges the data files the images wrote (implementations grouped by language, V8 once, every
+   workload matched by id); `tools/build_site.py` writes the page (with `site/generate_site.py` and
+   `site/template.html`) and the data of the day, and the job publishes them to this repository's `gh-pages`.
+
+**A foreign run is the fallback.** A source whose image cannot be pulled, fails, or writes no data file in the
+shape below falls back to the run it publishes itself (`benchmarks/latest.json` on its `gh-pages`, the manifest's
+`url`). The page marks it a foreign run (its group reads ".NET (foreign run)", its header fact says "foreign run"
+and the method says why), because its figures come from another runner on another night: a figure that crosses to
+a foreign run is a guide, every other figure is a measurement. A source that can be neither run nor read is
+reported in the log and on the page and skipped; it never stops the others from being published.
 
 ## The results contract
 
-What a source publishes:
+A source's image writes, and a source publishes as its fallback, one data file in the results-page shape. The
+plan's wording of what a source publishes:
 
 - `benchmarks/latest.json`: the run, in the results-page data shape (the `corvus-benchmark-results-page` skill:
   `meta`, `impls`, `schemas`, `measures`, `results`), and `benchmarks/runs/<date>-<commit>.json`, the same file
@@ -64,31 +75,58 @@ How the merge treats a source's data:
 - workloads are matched by name; a workload missing from a source is missing for that source's engines;
 - the page's date is the newest source's date.
 
+## The image contract
+
+Each engine repository publishes a container image, `ghcr.io/corvus-dotnet/corvus-regex-ecma262-<lang>`, tagged with
+each release's version and `latest`, whose entry point is its benchmark harness. Run as
+
+```sh
+docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro -v <out dir>:/out <image>
+```
+
+it runs its engines, its platform's competitors and V8 over the workloads (the texts are the gzipped files the
+workloads name, in `/texts`), runs the ECMA-262 test data for each engine's compliance, and writes the data file to
+`/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source fall back to its
+published run. The out directory is writable by any user, so the image may run as a user of its own.
+
 ## Registering a source
 
-1. In the engine repository, publish `benchmarks/latest.json` in the shape above to its `gh-pages` branch, from its
-   nightly benchmarks workflow. The .NET repository is the model: `.github/workflows/benchmarks.yml` and
+1. In the engine repository, publish the image above from its release workflow, and publish
+   `benchmarks/latest.json` in the same shape to its `gh-pages` branch from its own nightly benchmarks workflow
+   (the fallback). The .NET repository is the model: `.github/workflows/benchmarks.yml` and
    `.github/scripts/Update-GhPages.ps1` in
    [corvus-dotnet/Corvus.Regex.Ecma262](https://github.com/corvus-dotnet/Corvus.Regex.Ecma262).
 2. Add one entry to `sources.json` here:
 
    ```json
-   { "id": "rs", "language": "Rust", "url": "https://raw.githubusercontent.com/corvus-dotnet/corvus-regex-ecma262-rs/gh-pages/benchmarks/latest.json", "repo": "corvus-dotnet/corvus-regex-ecma262-rs" }
+   { "id": "rs", "language": "Rust", "url": "https://raw.githubusercontent.com/corvus-dotnet/corvus-regex-ecma262-rs/gh-pages/benchmarks/latest.json", "repo": "corvus-dotnet/corvus-regex-ecma262-rs", "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rust", "ref": "latest-release" }
    ```
 
-   `id` is short and unique (it prefixes the implementation ids, and so appears in the page's address); `language`
-   is the group the engines appear under.
+   `id` is short and unique (it prefixes the implementation ids, and so appears in the page's address);
+   `language` is the group the engines appear under; `url` is the published fallback; `image` is the image without
+   a tag; `ref` is `latest-release` (the release's tag, else `latest`), the only policy so far. An optional
+   `timeoutMinutes` (default 150) bounds the run.
 
-The engine gains its rows on the page at the next daily build, or straight away from a push to `main` here.
+The engine gains its rows on the page at the next nightly build, or straight away from a push to `main` here.
 
 ## Running it locally
 
-Python 3, standard library only:
+Python 3, standard library only, and Docker (or `CONTAINER_ENGINE=podman`). The whole run, as the workflow does it:
+
+```sh
+python3 tools/sources.py workloads --work work --workloads workloads.json
+python3 tools/sources.py texts --workloads workloads.json
+python3 tools/sources.py run --workloads workloads.json --out out-data
+python3 tools/merge.py --runs out-data/runs.json --out data/latest.json
+python3 tools/build_site.py --data data/latest.json --out out
+# then open out/index.html
+```
+
+Or only the page, from every source's published run (each marked a foreign run):
 
 ```sh
 python3 tools/merge.py --out data/latest.json
 python3 tools/build_site.py --data data/latest.json --out out
-# then open out/index.html
 ```
 
 A source's `url` in a copy of the manifest may be a local path (`--sources my-sources.json`), to try a source's data

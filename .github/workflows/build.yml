@@ -1,12 +1,17 @@
-# Gathers the published benchmark runs of every Corvus ECMA-262 regex engine (sources.json), merges them into one
-# data file (tools/merge.py), builds the page (tools/build_site.py, site/generate_site.py) and publishes it to
-# gh-pages: the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day. The branch is
-# replaced by one commit each time, holding the page and every day's data.
+# Runs every Corvus ECMA-262 regex engine on one runner and publishes one page from the runs.
+#
+# One job: write the Industry workloads once (the .NET repository's workloads.py, at its latest release) and
+# download their texts once (cached), then for each source of sources.json pull its container image at the tag of
+# its latest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
+# -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
+# here beyond Python and Docker. tools/merge.py merges the files; a source whose image cannot be pulled or fails
+# falls back to its published latest.json, marked a foreign run. The page and the data are published to gh-pages:
+# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces
+# the branch.
 name: build
 
 on:
   schedule:
-  # After the engines' nightly runs (the .NET repository's starts at 01:41 UTC).
   - cron: '30 3 * * *'
   workflow_dispatch:
   push:
@@ -14,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 concurrency:
   group: gh-pages
@@ -22,11 +28,41 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 340
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+    - name: Write the workloads
+      # The list comes from one place, the .NET repository's workloads.py, at its latest release. Without it no image
+      # can run, and every source falls back to its published run.
+      id: workloads
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: python3 tools/sources.py workloads --work work --workloads workloads.json
+    - name: Cache the texts
+      if: steps.workloads.outcome == 'success'
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/share/corvus-regex-benchmarks
+        key: industry-texts-${{ hashFiles('workloads.json') }}
+        restore-keys: industry-texts-
+    - name: Download the texts
+      id: texts
+      if: steps.workloads.outcome == 'success'
+      continue-on-error: true
+      run: python3 tools/sources.py texts --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
+    - name: Sign in to the container registry
+      if: steps.texts.outcome == 'success'
+      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+    - name: Run every source's image
+      if: steps.texts.outcome == 'success'
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --out out-data
     - name: Fetch the published site
       # The days already published are kept; the first run finds no branch and starts the list.
       run: |
@@ -35,11 +71,22 @@ jobs:
         else
           mkdir previous
         fi
-    - name: Merge the sources
-      run: python3 tools/merge.py --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: Merge the runs
+      run: |
+        runs=()
+        if [ -f out-data/runs.json ]; then runs=(--runs out-data/runs.json); fi
+        python3 tools/merge.py "${runs[@]}" --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: Keep the run
+      uses: actions/upload-artifact@v4
+      with:
+        name: runs-${{ github.run_id }}
+        path: |
+          out-data
+          workloads.json
     - name: Build the site
       run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
     - name: Publish to gh-pages
+      if: github.ref == 'refs/heads/main'
       run: |
         touch site-out/.nojekyll
         export GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD/site-out" GIT_INDEX_FILE="$RUNNER_TEMP/gh-pages.index"

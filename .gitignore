@@ -4,3 +4,5 @@ out-data/
 site-out/
 previous/
 __pycache__/
+work/
+workloads.json

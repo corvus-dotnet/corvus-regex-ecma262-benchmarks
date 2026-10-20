@@ -1,20 +1,24 @@
-"""Merges the published benchmark runs of every Corvus ECMA-262 regex engine into one results-page data file.
+"""Merges the benchmark runs of every Corvus ECMA-262 regex engine into one results-page data file.
 
-Each source in the manifest (sources.json) is an engine repository's `benchmarks/latest.json`, in the data shape of
-site/generate_site.py. Every source is fetched and checked; a source that cannot be fetched or does not have the
-shape is reported and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
+Each source in the manifest (sources.json) is an engine repository. With `--runs` (the runs.json that
+tools/sources.py writes after running every source's container image on this machine), a source's data is the
+file its image wrote here. A source that did not run here, or without `--runs`, falls back to its published
+`benchmarks/latest.json` (the manifest's `url`), and is marked a foreign run on the page. Every file is checked
+against the data shape of site/generate_site.py; a source that cannot be read or does not have the shape is reported
+and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
 
 - `impls`: every source's implementations, each id prefixed with the source id (`dotnet/Corvus interpreter`) and
   `group` set to the source's language; V8 once, from the first source that has it, in the group "V8";
 - `schemas`: the workloads, matched by name across sources (every source uses the Industry workload ids);
 - `measures`: the union, in the order first seen; `results`: per implementation, as the source gave them;
-- `meta`: the title, the cross-runner caveat, each source's commit, run time and runner as facts, links to each
-  source's repository and run, and `date`, the newest source's date.
+- `meta`: the title, a lede that says where the figures were measured (here, in one job, or on other runners for
+  the foreign runs), each source's release, commit, run time and runner as facts, links to each source's repository
+  and run, and `date`, the newest source's date.
 
 Python 3 standard library only.
 
 Usage:
-    python3 tools/merge.py [--sources sources.json] --out data/latest.json [--run-url URL]
+    python3 tools/merge.py [--sources sources.json] [--runs out-data/runs.json] --out data/latest.json [--run-url URL]
 
 A source's `url` may also be a local path, for trying a source before it publishes.
 """
@@ -31,8 +35,17 @@ TITLE = "Corvus ECMA-262 regex engines: the Industry benchmarks"
 REPO = "corvus-dotnet/corvus-regex-ecma262-benchmarks"
 LEDE = (
     "Every Corvus ECMA-262 regex engine, its platform's own regex engines and V8, over the Industry workloads of "
-    "dotnet/performance, gathered from each engine repository's nightly run. The runs come from different runners "
-    "on different nights, so a figure across languages is a guide and a figure within a language is a measurement."
+    "dotnet/performance. "
+)
+LEDE_HERE = "Every engine ran on this runner in this hour, in one job, so a figure compares across languages as well as within one."
+LEDE_MIXED = (
+    "Every engine ran on this runner in this hour, in one job, except those of a foreign run ({}), whose figures "
+    "come from their repository's own nightly run on another runner: a figure that crosses to a foreign run is a "
+    "guide, and every other figure is a measurement."
+)
+LEDE_FOREIGN = (
+    "The runs come from different runners on different nights, so a figure across languages is a guide and a "
+    "figure within a language is a measurement."
 )
 DEFAULT_VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
@@ -107,7 +120,7 @@ def parse_date(value):
         return None
 
 
-def merge(sources, run_url=""):
+def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
     vocab, default_measure = None, None
@@ -115,6 +128,7 @@ def merge(sources, run_url=""):
     v8_from, v8_dropped = None, []
     dates = []
     used = 0
+    here, foreign = [], []
 
     for source in sources:
         sid, language = source.get("id"), source.get("language")
@@ -122,17 +136,37 @@ def merge(sources, run_url=""):
             warn(f"a source in the manifest lacks id, language or url, skipped: {source}")
             notes.append(f"a manifest entry without an id, language or url ({html.escape(json.dumps(source))})")
             continue
-        try:
-            data = fetch(source["url"])
-        except Exception as e:  # any failure to fetch or parse is the source's, and only skips it
-            warn(f"{sid}: could not be read from {source['url']}, skipped: {e}")
-            notes.append(f"{html.escape(language)}: its data could not be read")
-            continue
-        problem = check(data)
-        if problem:
-            warn(f"{sid}: does not have the results-page shape, skipped: {problem}")
-            notes.append(f"{html.escape(language)}: its data does not have the expected shape ({html.escape(problem)})")
-            continue
+        ran = (runs or {}).get("sources", {}).get(sid, {})
+        data, why = None, None
+        if ran.get("file"):
+            try:
+                data = fetch(ran["file"])
+                why = check(data)
+            except Exception as e:  # a file that cannot be read is treated as an image that did not run
+                why = f"its data file could not be read ({e})"
+            if why:
+                data = None
+        elif runs is not None:
+            why = ran.get("error") or "it did not run here"
+        if data is None:
+            if runs is not None:
+                warn(f"{sid}: did not run here ({why}), so its published run is used")
+            try:
+                data = fetch(source["url"])
+            except Exception as e:  # any failure to fetch or parse is the source's, and only skips it
+                warn(f"{sid}: could not be read from {source['url']}, skipped: {e}")
+                notes.append(f"{html.escape(language)}: it did not run here ({html.escape(why or 'no image run')}) and its published data could not be read")
+                continue
+            problem = check(data)
+            if problem:
+                warn(f"{sid}: does not have the results-page shape, skipped: {problem}")
+                notes.append(f"{html.escape(language)}: its data does not have the expected shape ({html.escape(problem)})")
+                continue
+            foreign.append((language, why))
+            local = False
+        else:
+            here.append(language)
+            local = True
         used += 1
         meta = data["meta"]
         repo = source.get("repo") or meta.get("repo") or ""
@@ -154,7 +188,7 @@ def merge(sources, run_url=""):
             merged = dict(impl)
             merged["id"] = f"{sid}/{impl['id']}"
             merged["name"] = impl.get("name") or impl["id"]
-            merged["group"] = "V8" if v8 else language
+            merged["group"] = "V8" if v8 else language if local else f"{language} (foreign run)"
             merged["source"] = sid
             if v8:
                 v8_from = language
@@ -167,14 +201,21 @@ def merge(sources, run_url=""):
             dates.append((parsed, date))
         commit = str(meta.get("commit") or "")
         when = parsed.strftime("%Y-%m-%d %H:%M UTC") if parsed and len(date) > 10 else (date or "time not recorded")
-        facts.append([language, f"commit {commit[:10] or 'not recorded'}, run {when}, on {runner_of(meta)}"])
+        if local:
+            release = f"{ran.get('image', 'image')}:{ran.get('tag', '?')}"
+            started, finished = parse_date(ran.get("started")), parse_date(ran.get("finished"))
+            span = f"{started:%H:%M}-{finished:%H:%M} UTC" if started and finished else when
+            facts.append([language, f"{release}, commit {commit[:10] or 'not recorded'}, ran here {span}"])
+        else:
+            facts.append([language, f"foreign run: commit {commit[:10] or 'not recorded'}, run {when}, on {runner_of(meta)}"])
         if repo:
             links.append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
         if meta.get("runUrl"):
             links.append({"label": f"{language} run", "url": meta["runUrl"]})
         if meta.get("method"):
             commit_link = f' at <a href="https://github.com/{html.escape(repo)}/commit/{html.escape(commit)}">{html.escape(commit[:10])}</a>' if repo and commit else ""
-            methods.append(f"<h3>{html.escape(language)}</h3><p><i>From the run of {html.escape(repo or sid)}{commit_link}.</i></p>{meta['method']}")
+            origin = f"From the image of {html.escape(repo or sid)} ({html.escape(str(ran.get('image', '')))}:{html.escape(str(ran.get('tag', '')))}), run here" if local else f"From the published run of {html.escape(repo or sid)}, a foreign run"
+            methods.append(f"<h3>{html.escape(language)}</h3><p><i>{origin}{commit_link}.</i></p>{meta['method']}")
 
     # Two implementations of one name (an engine of the same name in two languages) are told apart by the language.
     counts = {}
@@ -184,11 +225,30 @@ def merge(sources, run_url=""):
         if counts[impl["name"]] > 1 and impl["group"] != "V8":
             impl["name"] = f"{impl['name']} ({impl['group']})"
 
-    method = [
+    if here and not foreign:
+        lede = LEDE + LEDE_HERE
+    elif here:
+        lede = LEDE + LEDE_MIXED.format(", ".join(language for language, _ in foreign))
+    elif runs is not None:
+        lede = LEDE + "No engine ran on this runner this time, so every figure is a foreign run, from its repository's own nightly run. " + LEDE_FOREIGN
+    else:
+        lede = LEDE + LEDE_FOREIGN
+    where = (
+        "<p><b>Where the figures come from.</b> This repository's nightly workflow runs each engine repository's "
+        "published container image, at its latest release, one after another in one job on one runner; each image "
+        "runs its engines, its platform's competitors and V8 over the workloads, then the ECMA-262 test data for "
+        "compliance. So the figures of every engine run here were measured on one machine in one hour.</p>"
+        if here else
         "<p><b>Where the figures come from.</b> Each engine repository runs its engines, its platform's competitors "
-        "and V8 on one runner every night and publishes the run as data; this page gathers the latest run of each. "
-        "The runs come from different runners on different nights, so a figure across languages is a guide and a "
-        "figure within a language is a measurement.</p>",
+        "and V8 on one runner every night and publishes the run as data; this page gathers the latest run of each.</p>"
+    )
+    if foreign:
+        where += ("<p><b>Foreign runs.</b> " + "; ".join(
+            f"{html.escape(language)}: {html.escape(why) if why else 'its published run'}" for language, why in foreign) +
+            ". A foreign run's figures come from its repository's own nightly run on another runner on another night, "
+            "so a figure that crosses to one is a guide, not a measurement.</p>")
+    method = [
+        where,
         "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data, whose answers are "
         "V8's: a check mark when it gave no wrong answer (the counts are in its tooltip), the count of wrong answers "
         "when it gave some, \"the oracle\" for V8, and \"not ECMA-262\" for an engine that implements another "
@@ -205,10 +265,11 @@ def merge(sources, run_url=""):
     links.append({"label": "Every day's data", "url": "data/runs/"})
     meta = {
         "title": TITLE,
-        "lede": LEDE,
+        "lede": lede,
         "repo": REPO,
         "icon": "favicon.svg",
-        "facts": facts + ([["Skipped", str(len(notes))]] if notes else []),
+        "facts": ([["Runner", runs["machine"]]] if runs and here and runs.get("machine") else []) + facts
+                 + ([["Skipped", str(len(notes))]] if notes else []),
         "links": links,
         "method": "".join(method),
     }
@@ -232,12 +293,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--sources", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sources.json"))
     parser.add_argument("--out", required=True)
+    parser.add_argument("--runs", help="The runs.json of tools/sources.py run: the data each image wrote here.")
     parser.add_argument("--run-url", default="", help="The URL of the workflow run that merges, for the page header.")
     args = parser.parse_args()
 
     with open(args.sources, encoding="utf-8") as f:
         sources = json.load(f)["sources"]
-    used, data = merge(sources, args.run_url)
+    runs = None
+    if args.runs:
+        with open(args.runs, encoding="utf-8") as f:
+            runs = json.load(f)
+    used, data = merge(sources, args.run_url, runs)
     if not used:
         raise SystemExit("merge: no source could be read, so there is nothing to publish")
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
