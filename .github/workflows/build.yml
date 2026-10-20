@@ -1,0 +1,52 @@
+# Gathers the published benchmark runs of every Corvus ECMA-262 regex engine (sources.json), merges them into one
+# data file (tools/merge.py), builds the page (tools/build_site.py, site/generate_site.py) and publishes it to
+# gh-pages: the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day. The branch is
+# replaced by one commit each time, holding the page and every day's data.
+name: build
+
+on:
+  schedule:
+  # After the engines' nightly runs (the .NET repository's starts at 01:41 UTC).
+  - cron: '30 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Fetch the published site
+      # The days already published are kept; the first run finds no branch and starts the list.
+      run: |
+        if git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages; then
+          git worktree add --detach previous origin/gh-pages
+        else
+          mkdir previous
+        fi
+    - name: Merge the sources
+      run: python3 tools/merge.py --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: Build the site
+      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
+    - name: Publish to gh-pages
+      run: |
+        touch site-out/.nojekyll
+        export GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD/site-out" GIT_INDEX_FILE="$RUNNER_TEMP/gh-pages.index"
+        git add --all
+        tree=$(git write-tree)
+        unset GIT_WORK_TREE GIT_INDEX_FILE
+        commit=$(git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+          commit-tree "$tree" -m "The benchmark page of $(date -u +%F), from $GITHUB_SHA")
+        # A commit with no parent: the branch is this one commit.
+        git push --force origin "$commit:refs/heads/gh-pages"

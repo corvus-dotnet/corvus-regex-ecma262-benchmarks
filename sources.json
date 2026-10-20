@@ -1,0 +1,10 @@
+{
+  "sources": [
+    {
+      "id": "dotnet",
+      "language": ".NET",
+      "url": "https://raw.githubusercontent.com/corvus-dotnet/Corvus.Regex.Ecma262/gh-pages/benchmarks/latest.json",
+      "repo": "corvus-dotnet/Corvus.Regex.Ecma262"
+    }
+  ]
+}

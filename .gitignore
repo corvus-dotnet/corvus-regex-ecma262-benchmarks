@@ -1,0 +1,6 @@
+out/
+data/
+out-data/
+site-out/
+previous/
+__pycache__/
