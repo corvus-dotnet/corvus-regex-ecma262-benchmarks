@@ -35,6 +35,13 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-py",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-py"
+    },
+    {
+      "id": "ruby",
+      "language": "Ruby",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-ruby",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-ruby"
     }
   ]
 }
