@@ -520,6 +520,19 @@ function thin(ticks, x, gap = 64) {
 }
 function ratioTickLabel(t) { return t >= 1 ? sig(t) + "×" : "1/" + sig(1 / t); }
 function width(el) { return Math.max(320, Math.floor(el.clientWidth)); }
+// The width text takes in a class (and style), measured in a hidden SVG so that it uses the page's fonts.
+let measurer;
+function textWidth(text, cls, style = "") {
+  if (!measurer) {
+    measurer = svgEl("svg", { width: 0, height: 0, "aria-hidden": "true", style: "position: absolute; visibility: hidden" });
+    document.body.append(measurer);
+  }
+  const t = svgEl("text", { class: cls, style }, text);
+  measurer.append(t);
+  const w = t.getComputedTextLength();
+  t.remove();
+  return w;
+}
 
 /* ---------- overall ---------- */
 function renderBoard() {
@@ -527,8 +540,16 @@ function renderBoard() {
   const rows = ranked();
   const versus = state.baseline !== "best";
   const W = width(host), rowH = 30, top = 26, narrow = W < 640;
-  const withComp = DATA.impls.some(i => compliance(i));
-  const labelW = narrow ? Math.min(150, W * 0.38) : withComp ? 330 : 230, covW = narrow ? 0 : 56, valW = narrow ? 70 : 104;
+  const covW = narrow ? 0 : 56, valW = narrow ? 70 : 104;
+  // The label column fits the widest name with its compliance badge, then the group, right-aligned in a column of its
+  // own; the group is left out when the two would take more than half the chart.
+  const nameW = narrow ? 0 : Math.max(0, ...rows.map(r => {
+    const info = IMPL.get(r.impl), comp = compliance(info);
+    return textWidth(info.name, "lab", "font-weight: 600") + (comp ? 8 + textWidth(comp.short, "lab-sub") : 0);
+  }));
+  const groupW = narrow ? 0 : Math.max(0, ...rows.map(r => IMPL.get(r.impl).group ? textWidth(IMPL.get(r.impl).group, "lab-sub") : 0));
+  const showGroup = !narrow && groupW > 0 && nameW + 16 + groupW + 12 <= W / 2;
+  const labelW = narrow ? Math.min(150, W * 0.38) : Math.max(230, Math.ceil(nameW + (showGroup ? 16 + groupW : 0) + 12));
   const finite = rows.filter(r => Number.isFinite(r.g)).map(r => r.g);
   let lo = Math.min(1, ...finite), hi = Math.max(1, ...finite);
   lo = Math.pow(2, Math.floor(Math.log2(lo))); hi = Math.pow(2, Math.ceil(Math.log2(hi)));
@@ -545,16 +566,16 @@ function renderBoard() {
   rows.forEach((r, i) => {
     const y = top + i * rowH, cy = y + rowH / 2, info = IMPL.get(r.impl);
     svg.append(svgEl("rect", { x: 0, y, width: W, height: rowH, class: "row-hit", "data-tip": r.impl }));
-    const name = svgEl("text", { x: 0, y: cy + 4, class: "lab" }, info.name);
+    // The labels pass the pointer through to the row's hit area, whose tooltip has the compliance in full.
+    const name = svgEl("text", { x: 0, y: cy + 4, class: "lab", "pointer-events": "none" }, info.name);
     if (r.impl === state.baseline) name.setAttribute("style", "fill: var(--accent); font-weight: 600");
     const comp = narrow ? null : compliance(info);
     if (comp) {
       const t = svgEl("tspan", { dx: 8, class: "lab-sub", style: `font-weight: 400; fill: var(${comp.cls === "comp-ok" ? "--faster" : comp.cls === "comp-wrong" ? "--slower" : "--muted"})` }, comp.short);
-      t.append(svgEl("title", {}, comp.long));
       name.append(t);
     }
     svg.append(name);
-    if (!narrow && info.group) svg.append(svgEl("text", { x: labelW - 12, y: cy + 4, "text-anchor": "end", class: "lab-sub" }, info.group));
+    if (showGroup && info.group) svg.append(svgEl("text", { x: labelW - 12, y: cy + 4, "text-anchor": "end", class: "lab-sub", "pointer-events": "none" }, info.group));
     if (Number.isFinite(r.g)) {
       const xa = x(Math.max(lo, Math.min(1, r.g))), xb = x(Math.max(1, r.g));
       const wbar = Math.max(2, xb - xa);
@@ -650,7 +671,8 @@ function renderMatrix() {
     `<span>· not run</span><span>Click a ${V.schema} for its detail.</span>`;
 }
 function matrixTip(key) {
-  const [id, schema] = key.split("|");
+  // A workload's name can hold a | (a regular expression's alternation); an implementation's id never does.
+  const at = key.indexOf("|"), id = key.slice(0, at), schema = key.slice(at + 1);
   const m = measure(id, schema), info = IMPL.get(id);
   let rows;
   if (m.state === "failed") rows = [["Result", V.failed]];
@@ -705,7 +727,7 @@ function renderSchema() {
     rows.forEach((o, i) => {
       const y = top + i * rowH, cy = y + rowH / 2;
       svg.append(svgEl("rect", { x: 0, y, width: W, height: rowH, class: "row-hit", "data-tip": o.id }));
-      const lab = svgEl("text", { x: 0, y: cy + 4, class: "lab" }, implLabel(o.id));
+      const lab = svgEl("text", { x: 0, y: cy + 4, class: "lab", "pointer-events": "none" }, implLabel(o.id));
       if (o.id === ref) lab.setAttribute("style", "fill: var(--accent); font-weight: 600");
       svg.append(lab);
       if (o.m.state !== "ok") {
@@ -914,6 +936,8 @@ function init() {
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
   new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   render();
+  // The Overall chart's label column is measured in the page's fonts: draw again once they have loaded.
+  if (document.fonts) document.fonts.ready.then(render);
 }
 init();
 </script>
