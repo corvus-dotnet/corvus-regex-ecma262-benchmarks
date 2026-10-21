@@ -49,6 +49,20 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-php",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-php"
+    },
+    {
+      "id": "swift",
+      "language": "Swift",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-swift",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-swift"
+    },
+    {
+      "id": "r",
+      "language": "R",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-r",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r"
     }
   ]
 }

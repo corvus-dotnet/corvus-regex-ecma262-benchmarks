@@ -391,7 +391,8 @@ function fmtRatio(r, versus = state.baseline !== "best") {
   return r < 1 ? sig(1 / r) + "× " + better() : sig(r) + "× " + worse();
 }
 // An implementation's compliance (impl.compliance), when the data gives one: the counts on the ECMA-262 test data
-// ({right, wrong, refused, acceptedInvalid}), or a phrase such as "not ECMA-262" or "the oracle of the test data".
+// ({right, wrong, refused, acceptedInvalid}, with a note that says what was judged when not all of it was), or a phrase
+// such as "not ECMA-262" or "the oracle of the test data".
 // Absent, nothing is shown. Returns { short, long, cls } or null.
 function compliance(info) {
   const c = info && info.compliance;
@@ -405,7 +406,8 @@ function compliance(info) {
   const pct = total ? Math.floor(((c.right || 0) / total) * 10000) / 100 : 0;
   const share = bad ? `${pct.toFixed(2)}%` : "100%";
   const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]].filter(([k]) => c[k]).map(([k, w]) => `, ${n(k)} ${w}`).join("");
-  const long = `ECMA-262 test data: ${share} (${n("right")} right, ${n("wrong")} wrong${extra}, of ${total.toLocaleString("en")} answers)`;
+  const long = `ECMA-262 test data: ${share} (${n("right")} right, ${n("wrong")} wrong${extra}, of ${total.toLocaleString("en")} answers)` +
+    (c.note ? `. ${c.note}` : "");
   return bad ? { short: `${share} ECMA-262`, long, cls: "comp-wrong" } : { short: "✓ 100% ECMA-262", long, cls: "comp-ok" };
 }
 // Fully compliant: the oracle, or counts with nothing wrong, refused or accepted that should not be.
