@@ -20,6 +20,14 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-rs",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-c"
+    },
+    {
+      "id": "cpp",
+      "language": "C++",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-cpp",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-cpp",
+      "timeoutMinutes": 240
     }
   ]
 }
