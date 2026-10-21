@@ -65,6 +65,13 @@
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r",
       "timeoutMinutes": 240
+    },
+    {
+      "id": "fortran",
+      "language": "Fortran",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-fortran",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-fortran"
     }
   ]
 }
