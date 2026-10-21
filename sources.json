@@ -55,14 +55,16 @@
       "language": "Swift",
       "repo": "corvus-dotnet/corvus-regex-ecma262-swift",
       "ref": "latest-release",
-      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-swift"
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-swift",
+      "timeoutMinutes": 240
     },
     {
       "id": "r",
       "language": "R",
       "repo": "corvus-dotnet/corvus-regex-ecma262-r",
       "ref": "latest-release",
-      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r"
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r",
+      "timeoutMinutes": 240
     }
   ]
 }
