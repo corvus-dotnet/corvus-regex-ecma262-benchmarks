@@ -13,6 +13,13 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-rs",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rs"
+    },
+    {
+      "id": "c",
+      "language": "C",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-rs",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-c"
     }
   ]
 }

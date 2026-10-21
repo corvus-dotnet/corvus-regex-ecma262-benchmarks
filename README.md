@@ -104,6 +104,11 @@ published run. The out directory is writable by any user, so the image may run a
    a tag; `ref` is `latest-release` (the release's tag, else `latest`), the only policy so far. An optional
    `timeoutMinutes` (default 150) bounds the run.
 
+   Two sources may come from one repository: the Rust crate and its C library both live in
+   `corvus-dotnet/corvus-regex-ecma262-rs`, as the sources `rust` and `c`, each with its own image, id and language.
+   The repository's latest release is looked up for each, and an image that no release carries yet (a source added
+   after the repository's last release) runs at `:latest` until the next release publishes its tag.
+
 The engine gains its rows on the page at the next nightly build, or straight away from a push to `main` here.
 
 ## Running it locally
