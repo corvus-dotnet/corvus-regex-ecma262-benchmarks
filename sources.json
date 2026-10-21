@@ -28,6 +28,13 @@
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-cpp",
       "timeoutMinutes": 240
+    },
+    {
+      "id": "python",
+      "language": "Python",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-py",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-py"
     }
   ]
 }
