@@ -8,16 +8,23 @@
         Downloads each text the workloads name (the Industry texts of dotnet/performance, gzipped, kept as they are)
         into DIR, unless it is there already.
 
-    python3 tools/sources.py run --workloads workloads.json --texts DIR --out out-data
+    python3 tools/sources.py data [--sources sources.json] --data DIR
+        Fetches the ECMA-262 test data at the commit sources.json pins ("testData") into DIR, whose data/ directory
+        every image is then given: every engine of a night is judged on the same data, and a change to the data
+        reaches the page when the pin is moved, once every engine's runner reads it.
+
+    python3 tools/sources.py run --workloads workloads.json --texts DIR [--data DIR/data] [--budget-minutes N] --out out-data
         For each source: pulls `<image>:<tag>`, the tag of the repository's latest GitHub release (or `latest` when
         there is no release or that tag cannot be pulled), and runs it as the contract says,
 
-            docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro -v <out>/<id>:/out <image>
+            docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
 
-        which writes /out/industry.json. Writes out-data/runs.json: per source, the data file (when it has the
-        results-page shape), the image and tag that ran, the image's digest, the time it ran, and this machine's
-        description. An image that cannot be pulled, fails or writes no usable file is recorded as such;
-        tools/merge.py then shows the source as not run tonight.
+        which writes /out/industry.json. Writes out-data/runs.json, after each source, so that a run cut short still
+        has the sources it ran: per source, the data file (when it has the results-page shape), the image and tag
+        that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
+        pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
+        tonight. With --budget-minutes, no source runs past that many minutes from the start: each is given the less
+        of its own limit and the time left, and one that would start with none left is recorded as not run.
 
 Python 3 standard library only. GITHUB_TOKEN, when set, authenticates the GitHub API calls.
 """
@@ -132,14 +139,52 @@ def pull(image, tag):
     return None
 
 
+def test_data(path):
+    """The pin of the test data in sources.json: {"repo", "commit"}, or None."""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("testData")
+
+
+def data(args):
+    pin = test_data(args.sources)
+    if not pin:
+        raise SystemExit("sources.json pins no test data (testData)")
+    target = os.path.abspath(args.data)
+    os.makedirs(target, exist_ok=True)
+    url = f"https://github.com/{pin['repo']}"
+    for step in (["init", "--quiet"], ["remote", "add", "origin", url], ["fetch", "--quiet", "--depth", "1", "origin", pin["commit"]],
+                 ["checkout", "--quiet", "FETCH_HEAD"]):
+        subprocess.run(["git", "-C", target, *step], check=True)
+    log(f"test data: {pin['repo']} at {pin['commit'][:10]} -> {target}")
+
+
 def run(args):
     os.makedirs(args.out, exist_ok=True)
     workloads_file, text_dir = os.path.abspath(args.workloads), os.path.abspath(args.texts)
+    data_dir = os.path.abspath(args.data) if args.data else None
     runs = {"machine": describe_machine(), "started": now(), "sources": {}}
+    pin = test_data(args.sources)
+    if data_dir and pin:
+        runs["testData"] = pin
+    start = datetime.datetime.now(datetime.timezone.utc)
+
+    def save():
+        with open(os.path.join(args.out, "runs.json"), "w", encoding="utf-8") as f:
+            json.dump(runs, f, indent=1)
+
     for source in load_sources(args.sources):
+        save()
         sid, image = source["id"], source.get("image")
         record = {}
         runs["sources"][sid] = record
+        limit = int(source.get("timeoutMinutes", 150)) * 60
+        if args.budget_minutes:
+            left = args.budget_minutes * 60 - (datetime.datetime.now(datetime.timezone.utc) - start).total_seconds()
+            if left < 60:
+                record["error"] = "the night's time ran out before it could start"
+                log(f"{sid}: {record['error']}")
+                continue
+            limit = int(min(limit, left))
         if not image:
             record["error"] = "it names no image"
             continue
@@ -163,8 +208,10 @@ def run(args):
         log(f"{sid}: running {image}:{tag}")
         print(f"::group::{sid} {image}:{tag}", flush=True)
         try:
-            code = docker("run", "--rm", "-v", f"{workloads_file}:/workloads.json:ro", "-v", f"{text_dir}:/texts:ro",
-                          "-v", f"{out}:/out", f"{image}:{tag}", timeout=int(source.get("timeoutMinutes", 150)) * 60)
+            mounts = ["-v", f"{workloads_file}:/workloads.json:ro", "-v", f"{text_dir}:/texts:ro"]
+            if data_dir:
+                mounts += ["-v", f"{data_dir}:/data:ro"]
+            code = docker("run", "--rm", *mounts, "-v", f"{out}:/out", f"{image}:{tag}", timeout=limit)
         except subprocess.TimeoutExpired:
             code = "timed out"
         print("::endgroup::", flush=True)
@@ -189,22 +236,23 @@ def run(args):
             log(f"{sid}: done")
             record["file"] = data
     runs["finished"] = now()
-    with open(os.path.join(args.out, "runs.json"), "w", encoding="utf-8") as f:
-        json.dump(runs, f, indent=1)
+    save()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=["workloads", "texts", "run"])
+    parser.add_argument("command", choices=["workloads", "texts", "data", "run"])
     parser.add_argument("--sources", default=os.path.join(ROOT, "sources.json"))
     parser.add_argument("--work", default="work")
     parser.add_argument("--workloads", default="workloads.json")
     parser.add_argument("--texts", default=os.path.expanduser("~/.local/share/corvus-regex-benchmarks"))
     parser.add_argument("--out", default="out-data")
+    parser.add_argument("--data", help="data: where to fetch the test data; run: its data/ directory, given to every image at /data")
+    parser.add_argument("--budget-minutes", type=int, default=0, help="run: no source runs past this many minutes from the start")
     args = parser.parse_args()
     if args.command == "workloads":
         args.out = args.workloads
-    {"workloads": workloads, "texts": texts, "run": run}[args.command](args)
+    {"workloads": workloads, "texts": texts, "data": data, "run": run}[args.command](args)
 
 
 if __name__ == "__main__":

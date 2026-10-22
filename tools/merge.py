@@ -232,7 +232,9 @@ def merge(sources, run_url="", runs=None):
         "lede": lede,
         "repo": REPO,
         "icon": "favicon.svg",
-        "facts": ([["Runner", runs["machine"]]] if runs and here and runs.get("machine") else []) + facts
+        "facts": ([["Runner", runs["machine"]]] if runs and here and runs.get("machine") else [])
+                 + ([["Test data", f"{runs['testData']['repo']} at {runs['testData']['commit'][:10]}, the same for every engine"]]
+                    if runs and runs.get("testData") else []) + facts
                  + ([["Skipped", str(len(notes))]] if notes else []),
         "links": links,
         "method": "".join(method),
