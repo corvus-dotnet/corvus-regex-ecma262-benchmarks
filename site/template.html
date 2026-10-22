@@ -83,13 +83,19 @@ select { background: var(--surface); border: 1px solid var(--line); border-radiu
 .picker > summary::-webkit-details-marker { display: none; }
 .picker > summary::after { content: " ▾"; color: var(--muted); }
 .picker[open] > summary { background: var(--neutral); }
-.picker-panel { position: absolute; left: 0; top: calc(100% + 6px); width: min(720px, 100%); max-height: min(70vh, 560px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); padding: 14px; display: grid; gap: 12px; }
+.picker-panel { position: absolute; left: 0; top: calc(100% + 6px); width: min(1080px, 100%); max-height: min(70vh, 560px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); padding: 14px; display: grid; gap: 12px; }
 .picker-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .picker-actions button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 3px 10px; font-size: 13px; cursor: pointer; }
 .picker-actions button:hover { background: var(--neutral); }
-.langs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 18px; }
+.langs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px 22px; }
 .lang h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
-.lang label { display: flex; align-items: baseline; gap: 6px; font-size: 14px; padding: 2px 0; cursor: pointer; }
+.lang label { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: start; font-size: 14px; padding: 3px 0; cursor: pointer; }
+.lang label input { margin: 3px 0 0; }
+/* A name wraps between its words, never at the hyphens inside one; the version and the compliance sit on a line of their
+   own beneath it, so neither runs into the next column. */
+.pick-name .w { white-space: nowrap; }
+.pick-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: 1px; }
+.pick-meta:empty { display: none; }
 .lang label small { color: var(--muted); font-family: var(--font-data); font-size: 11px; }
 .comp { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
 .comp-ok { color: var(--faster); border-color: currentColor; }
@@ -898,7 +904,10 @@ function init() {
   for (const i of DATA.impls) { const k = i.group || "Other"; if (!byLang.has(k)) byLang.set(k, []); byLang.get(k).push(i); }
   document.getElementById("langs").innerHTML = [...byLang.keys()].sort((a, b) => a.localeCompare(b)).map(lang =>
     `<div class="lang"><h3>${esc(lang)}</h3>` + byLang.get(lang).map(i =>
-      `<label title="${esc(i.version || "")}"><input type="checkbox" id="pick-${esc(i.id)}" value="${esc(i.id)}"> ${esc(i.name)} <small>${esc((i.version || "").split(" ")[0])}</small>${compliance(i) ? ` <span class="comp ${compliance(i).cls}" title="${esc(compliance(i).long)}">${esc(compliance(i).short)}</span>` : ""}</label>`).join("") + `</div>`).join("");
+      `<label title="${esc(i.version || "")}"><input type="checkbox" id="pick-${esc(i.id)}" value="${esc(i.id)}">` +
+      `<span><span class="pick-name">${i.name.split(" ").map(w => `<span class="w">${esc(w)}</span>`).join(" ")}</span>` +
+      `<span class="pick-meta">${i.version ? `<small>${esc(i.version.split(" ")[0])}</small>` : ""}` +
+      `${compliance(i) ? `<span class="comp ${compliance(i).cls}" title="${esc(compliance(i).long)}">${esc(compliance(i).short)}</span>` : ""}</span></span></label>`).join("") + `</div>`).join("");
   document.getElementById("langs").addEventListener("change", e => {
     const id = e.target.value;
     if (e.target.checked) state.selected.add(id); else state.selected.delete(id);
