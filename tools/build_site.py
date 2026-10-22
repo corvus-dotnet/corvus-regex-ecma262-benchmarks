@@ -15,11 +15,16 @@ Usage:
 
 import argparse
 import datetime
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from merge import site_links  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DAY = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
@@ -45,9 +50,21 @@ def main():
     shutil.copyfile(args.data, os.path.join(args.out, "data", "latest.json"))
     shutil.copyfile(args.data, os.path.join(runs, f"{args.date}.json"))
     shutil.copyfile(os.path.join(ROOT, "site", "favicon.svg"), os.path.join(args.out, "favicon.svg"))
-    subprocess.run([sys.executable, os.path.join(ROOT, "site", "generate_site.py"), "--data", args.data,
-                    "--engines", os.path.join(ROOT, "site", "engines.json"),
-                    "--out", os.path.join(args.out, "index.html")], check=True)
+    # Data merged before the page linked this repository and the test data gains the links here, so the page has
+    # them from the next push rather than the next run; the data files themselves are published as they were merged.
+    with open(args.data, encoding="utf-8") as f:
+        data = json.load(f)
+    links = data["meta"].get("links", [])
+    labels = {l.get("label") for l in links}
+    data["meta"]["links"] = [l for l in site_links() if l["label"] not in labels] + links
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as page_data:
+        json.dump(data, page_data)
+    try:
+        subprocess.run([sys.executable, os.path.join(ROOT, "site", "generate_site.py"), "--data", page_data.name,
+                        "--engines", os.path.join(ROOT, "site", "engines.json"),
+                        "--out", os.path.join(args.out, "index.html")], check=True)
+    finally:
+        os.unlink(page_data.name)
 
     days = sorted((m.group(1) for m in map(DAY.match, os.listdir(runs)) if m), reverse=True)
     items = "\n".join(f'<li><a href="{d}.json">{d}</a></li>' for d in days)

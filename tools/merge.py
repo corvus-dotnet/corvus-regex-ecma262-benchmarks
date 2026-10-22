@@ -33,6 +33,16 @@ import urllib.request
 
 TITLE = "Corvus ECMA-262 regex engines: the Industry benchmarks"
 REPO = "corvus-dotnet/corvus-regex-ecma262-benchmarks"
+TEST_DATA_REPO = "corvus-dotnet/ecma262-regex-test-data"
+
+
+def site_links(test_data=None):
+    """The page's first two links: this repository (the workloads, the tools and how a run is made) and the test data
+    the compliance figures come from, at the commit the run used when it is known."""
+    data_url = (f"https://github.com/{test_data['repo']}/tree/{test_data['commit']}" if test_data
+                else f"https://github.com/{TEST_DATA_REPO}")
+    return [{"label": "How the benchmarks run", "url": f"https://github.com/{REPO}"},
+            {"label": "ECMA-262 test data", "url": data_url}]
 LEDE = (
     "Every Corvus ECMA-262 regex engine, its platform's own regex engines and V8, over the Industry workloads of "
     "dotnet/performance. "
@@ -204,9 +214,10 @@ def merge(sources, run_url="", runs=None):
 
     lede = LEDE + (LEDE_HERE if here else "No engine ran on this runner tonight; the previous nights are in every day's data.")
     where = (
-        "<p><b>Where the figures come from.</b> This repository's nightly workflow runs each engine repository's "
-        "published container image, at its latest release, one after another in one job on one runner; each image "
-        "runs its engines, its platform's competitors and V8 over the workloads, then the ECMA-262 test data for "
+        f"<p><b>Where the figures come from.</b> <a href=\"https://github.com/{REPO}\">This repository</a>'s nightly "
+        "workflow runs each engine repository's published container image, at its latest release, one after another "
+        "in one job on one runner; each image runs its engines, its platform's competitors and V8 over the workloads, "
+        f"then <a href=\"{site_links(runs.get('testData') if runs else None)[1]['url']}\">the ECMA-262 test data</a> for "
         "compliance. So the figures of every engine run here were measured on one machine in one hour.</p>"
         if here else
         "<p><b>Where the figures come from.</b> No engine's image ran tonight.</p>"
@@ -226,6 +237,7 @@ def merge(sources, run_url="", runs=None):
         method.append("<p><b>Sources skipped this time:</b> " + "; ".join(notes) + ".</p>")
     method.extend(methods)
 
+    links = site_links(runs.get("testData") if runs else None) + links
     links.append({"label": "Every day's data", "url": "data/runs/"})
     meta = {
         "title": TITLE,
