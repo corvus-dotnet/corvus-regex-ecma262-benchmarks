@@ -1,4 +1,8 @@
 {
+  "testData": {
+    "repo": "corvus-dotnet/ecma262-regex-test-data",
+    "commit": "41ed6db477c0d57192673a3a1a76a3b7a194603b"
+  },
   "sources": [
     {
       "id": "dotnet",
@@ -59,19 +63,19 @@
       "timeoutMinutes": 240
     },
     {
+      "id": "fortran",
+      "language": "Fortran",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-fortran",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-fortran"
+    },
+    {
       "id": "r",
       "language": "R",
       "repo": "corvus-dotnet/corvus-regex-ecma262-r",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r",
       "timeoutMinutes": 240
-    },
-    {
-      "id": "fortran",
-      "language": "Fortran",
-      "repo": "corvus-dotnet/corvus-regex-ecma262-fortran",
-      "ref": "latest-release",
-      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-fortran"
     }
   ]
 }

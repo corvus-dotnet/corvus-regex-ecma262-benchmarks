@@ -1,10 +1,16 @@
 # Runs every Corvus ECMA-262 regex engine on one runner and publishes one page from the runs.
 #
+# The nightly schedule and a run by hand run every engine; a push to main (a change to the page or the tools) only
+# builds the page again from the data already published, in a minute, and runs no image.
+#
 # One job: write the Industry workloads once (the .NET repository's workloads.py, at its latest release) and
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
 # its latest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
-# here beyond Python and Docker. tools/merge.py merges the files; a source whose image cannot be pulled or fails is
+# here beyond Python and Docker. Every image is given the ECMA-262 test data at the commit sources.json pins (testData),
+# mounted at /data, so every engine of a night is judged on the same data. The images run within 300 minutes in all
+# (--budget-minutes), and runs.json is written after each, so a night cut short still publishes what ran.
+# tools/merge.py merges the files; a source whose image cannot be pulled or fails is
 # shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
 # the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces
 # the branch.
@@ -38,6 +44,7 @@ jobs:
       # The list comes from one place, the .NET repository's workloads.py, at its latest release. Without it no image
       # can run, and every source is shown as not run.
       id: workloads
+      if: github.event_name != 'push'
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -54,15 +61,23 @@ jobs:
       if: steps.workloads.outcome == 'success'
       continue-on-error: true
       run: python3 tools/sources.py texts --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
-    - name: Sign in to the container registry
-      if: steps.texts.outcome == 'success'
-      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-    - name: Run every source's image
+    - name: Fetch the test data
+      # At the commit sources.json pins, for every image.
+      id: data
       if: steps.texts.outcome == 'success'
       continue-on-error: true
+      run: python3 tools/sources.py data --data test-data
+    - name: Sign in to the container registry
+      if: steps.data.outcome == 'success'
+      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+    - name: Run every source's image
+      if: steps.data.outcome == 'success'
+      continue-on-error: true
+      # The budget ends the images in time for the steps after to publish what ran; this limit is the backstop.
+      timeout-minutes: 310
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --out out-data
+      run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --data test-data/data --budget-minutes 300 --out out-data
     - name: Fetch the published site
       # The days already published are kept; the first run finds no branch and starts the list.
       run: |
@@ -72,11 +87,17 @@ jobs:
           mkdir previous
         fi
     - name: Merge the runs
+      if: github.event_name != 'push'
       run: |
         runs=()
         if [ -f out-data/runs.json ]; then runs=(--runs out-data/runs.json); fi
         python3 tools/merge.py "${runs[@]}" --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: The data already published
+      # A push builds the page again from the published data: no image has run.
+      if: github.event_name == 'push'
+      run: mkdir -p out-data && cp previous/data/latest.json out-data/latest.json
     - name: Keep the run
+      if: github.event_name != 'push'
       uses: actions/upload-artifact@v4
       with:
         name: runs-${{ github.run_id }}
