@@ -46,6 +46,7 @@ def main():
     shutil.copyfile(args.data, os.path.join(runs, f"{args.date}.json"))
     shutil.copyfile(os.path.join(ROOT, "site", "favicon.svg"), os.path.join(args.out, "favicon.svg"))
     subprocess.run([sys.executable, os.path.join(ROOT, "site", "generate_site.py"), "--data", args.data,
+                    "--engines", os.path.join(ROOT, "site", "engines.json"),
                     "--out", os.path.join(args.out, "index.html")], check=True)
 
     days = sorted((m.group(1) for m in map(DAY.match, os.listdir(runs)) if m), reverse=True)

@@ -32,25 +32,59 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
       "results": { "<impl id>": { "<schema name>": null | { "<part>": [runs...] | {"median": n, "min": n, "max": n} } } }
     }
 
+With --engines (a JSON file: {"engines": [{"name": "...", "impls": ["<impl id>", ...], "package": {"label": "...",
+"url": "..."}, "source": "url"}]}), the page also lists each engine the data has, with the versions its rows report
+and where it comes from, at its foot. An impl that no entry names is listed alone, without links, and the generator
+says so.
+
 A result of null is a failure (the implementation did not complete the schema); an absent entry was not run. A
 part is either every run's value, in nanoseconds (or the unit the measure says), or a summary of it. Parts of a
 measure are summed, so "parse + warm" is a measure with two parts.
 
 Usage:
-    python3 generate_site.py --data results.json --out index.html [--fragment]
+    python3 generate_site.py --data results.json --out index.html [--engines engines.json] [--fragment]
 """
 
 import argparse
 import html, json
 import os
+import sys
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template.html")
+
+
+def engines_of(data, path):
+    """The engines the data has, in the order of their first row: each entry of the file that names a row of the data,
+    then each row that no entry names."""
+    with open(path, encoding="utf-8") as f:
+        entries = json.load(f)["engines"]
+    impls = {i["id"]: i for i in data["impls"]}
+    order = {i["id"]: n for n, i in enumerate(data["impls"])}
+    engines, named = [], set()
+    for e in entries:
+        ids = [i for i in e["impls"] if i in impls]
+        if not ids:
+            continue
+        named.update(ids)
+        versions = list(dict.fromkeys(impls[i].get("version") or "" for i in ids))
+        engines.append((min(order[i] for i in ids), {
+            "name": e["name"], "group": impls[ids[0]].get("group", ""),
+            "versions": [v for v in versions if v], "rows": [impls[i]["name"] for i in ids],
+            "package": e.get("package"), "source": e.get("source")}))
+    for i in data["impls"]:
+        if i["id"] not in named:
+            print(f"generate_site: {path} has no entry for '{i['id']}'; it is listed without links", file=sys.stderr)
+            engines.append((order[i["id"]], {
+                "name": i["name"], "group": i.get("group", ""), "versions": [i["version"]] if i.get("version") else [],
+                "rows": [i["name"]], "package": None, "source": None}))
+    return [e for _, e in sorted(engines, key=lambda t: t[0])]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--engines", help="Where each engine comes from, listed at the foot of the page.")
     # For hosts that supply the document skeleton themselves, such as a preview that wraps the page.
     parser.add_argument("--fragment", action="store_true", help="Emit the page without its document skeleton.")
     args = parser.parse_args()
@@ -60,6 +94,8 @@ def main():
     for key in ("meta", "vocab", "measures", "impls", "schemas", "results"):
         if key not in data:
             raise SystemExit(f"the data has no '{key}'")
+    if args.engines:
+        data["engines"] = engines_of(data, args.engines)
 
     payload = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
     with open(TEMPLATE, encoding="utf-8") as f:
