@@ -70,6 +70,8 @@ h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 
 .controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); padding-block: 10px; }
 .controls .wrap { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
 .ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* A select in a control row shrinks to the row rather than to its longest option, which at phone width runs off the page. */
+.ctl select { min-width: 0; }
 .ctl > label, .ctl-label { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 .seg { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { border: 0; background: transparent; padding: 5px 10px; cursor: pointer; font-size: 13px; color: var(--ink-2); border-right: 1px solid var(--line); }
