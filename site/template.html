@@ -65,6 +65,7 @@ h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 
 .runmeta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 6px; font-family: var(--font-data); font-size: 13px; color: var(--band-ink); }
 .runmeta span { color: var(--band-muted); }
 .runmeta a { color: var(--band-ink); }
+.eyebrow a { color: inherit; }
 
 /* Controls */
 .controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); padding-block: 10px; }
@@ -929,7 +930,7 @@ function init() {
   // Where the data carries compliance, the quick pick is the fully compliant implementations; otherwise those that
   // complete every workload.
   document.getElementById("pick-complete").textContent = HAS_COMPLIANCE ? "Only those 100% compliant" : `Only those that complete every ${V.schema}`;
-  document.getElementById("repo").textContent = meta.repo.replace("/", " / ");
+  document.getElementById("repo").innerHTML = `<a href="https://github.com/${esc(meta.repo)}">${esc(meta.repo.replace("/", " / "))}</a>`;
   // The run's time, as the data gives it: a day alone is printed as a day, never with an invented midnight.
   if (meta.date) bits.push(`<div><span>Run</span> ${esc(/^\d{4}-\d{2}-\d{2}$/.test(meta.date) ? new Date(meta.date + "T00:00:00Z").toUTCString().replace(/ \d\d:\d\d:\d\d GMT$/, "") : new Date(meta.date).toUTCString().replace(/:\d\d GMT$/, " UTC"))}</div>`);
   if (meta.commit) bits.push(`<div><span>Commit</span> <a href="https://github.com/${esc(meta.repo)}/commit/${esc(meta.commit)}">${esc(meta.commit.slice(0, 10))}</a></div>`);
