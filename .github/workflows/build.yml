@@ -40,6 +40,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+    - uses: actions/setup-node@v4
+      with:
+        # The Node of the harness images, whose V8 counts each workload once for every image (the counts step).
+        node-version: '24.11.0'
     - name: Write the workloads
       # The list comes from one place, the .NET repository's workloads.py, at its latest release. Without it no image
       # can run, and every source is shown as not run.
@@ -61,6 +65,13 @@ jobs:
       if: steps.workloads.outcome == 'success'
       continue-on-error: true
       run: python3 tools/sources.py texts --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
+    - name: Count each workload under V8
+      # Once for every image: an image run with V8=0 checks its engines' counts against these instead of timing V8.
+      # Without them, every image times V8 as before.
+      id: counts
+      if: steps.texts.outcome == 'success'
+      continue-on-error: true
+      run: python3 tools/sources.py counts --work work --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
     - name: Fetch the test data
       # At the commit sources.json pins, for every image.
       id: data

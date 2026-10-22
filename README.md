@@ -87,6 +87,13 @@ workloads name, in `/texts`), runs the ECMA-262 test data for each engine's comp
 `/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source fall back to its
 published run. The out directory is writable by any user, so the image may run as a user of its own.
 
+Given `-e V8=0`, the image runs neither V8's timings nor V8 over the test data, and its data file has no V8 row: it
+checks its engines' counts against each workload's `v8Count` (V8's count, which the nightly run writes into
+`workloads.json` once, before any image runs) where it would have checked them against its own V8 run, so a Corvus
+engine that counts otherwise is still an error and another engine's row is still marked where its count differs. The
+page shows V8 once, so the nightly run gives `V8=0` to every source but the one `sources.json` marks `"v8": true` (the
+.NET source); an image that does not know the variable still runs V8, whose rows the merge then leaves out.
+
 ## Registering a source
 
 1. In the engine repository, publish the image above (`:latest` from main, and the version tag from each release),

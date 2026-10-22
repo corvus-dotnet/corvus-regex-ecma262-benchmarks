@@ -13,13 +13,21 @@
         every image is then given: every engine of a night is judged on the same data, and a change to the data
         reaches the page when the pin is moved, once every engine's runner reads it.
 
+    python3 tools/sources.py counts [--work DIR] --workloads workloads.json --texts DIR
+        Counts each workload under V8 once, with the industry.mjs of the .NET repository the workloads came from (in
+        DIR, as the workloads command left it), and writes each count into workloads.json as "v8Count". An image run
+        with V8=0 checks its engines' counts against these instead of timing V8 itself; a workload V8 cannot count
+        has none, and is not checked.
+
     python3 tools/sources.py run --workloads workloads.json --texts DIR [--data DIR/data] [--budget-minutes N] --out out-data
         For each source: pulls `<image>:<tag>`, the tag of the repository's latest GitHub release (or `latest` when
         there is no release or that tag cannot be pulled), and runs it as the contract says,
 
-            docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
+            docker run --rm [-e V8=0] -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
 
-        which writes /out/industry.json. Writes out-data/runs.json, after each source, so that a run cut short still
+        which writes /out/industry.json. When the workloads carry V8's counts (the counts command), every source but
+        the one sources.json marks "v8": true runs with V8=0, so that V8 is timed (and run over the data) once a
+        night rather than in every image: the page shows it once. Writes out-data/runs.json, after each source, so that a run cut short still
         has the sources it ran: per source, the data file (when it has the results-page shape), the image and tag
         that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
@@ -158,9 +166,37 @@ def data(args):
     log(f"test data: {pin['repo']} at {pin['commit'][:10]} -> {target}")
 
 
+def counts(args):
+    source = next((s for s in load_sources(args.sources) if s.get("language") == ".NET"), None)
+    if source is None:
+        raise SystemExit("sources: the manifest has no .NET source, whose industry.mjs counts the workloads")
+    script = os.path.join(os.path.abspath(args.work), source["id"], "tools", "benchmarks", "v8", "industry.mjs")
+    path = os.path.abspath(args.workloads)
+    with open(path, encoding="utf-8") as f:
+        all_workloads = json.load(f)
+    env = dict(os.environ, CORVUS_REGEX_TEXTS=os.path.abspath(args.texts))
+    counted = 0
+    for k, w in enumerate(all_workloads):
+        # One turn of the interleaved run, as each image's harness starts it, timed as briefly as it allows: its count.
+        out = subprocess.run(["node", script, "--one", path, str(k), "0.001", "1"], capture_output=True, text=True,
+                             env=env, timeout=600)
+        lines = out.stdout.strip().splitlines()
+        figure = json.loads(lines[-1]) if out.returncode == 0 and lines else {}
+        if "count" in figure and "error" not in figure:
+            w["v8Count"] = figure["count"]
+            counted += 1
+        else:
+            log(f"V8 does not count {w['id']}: {(out.stderr.strip() or figure.get('error') or 'no figure')[:200]}")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(all_workloads, f, ensure_ascii=False, indent=1)
+    log(f"V8's count of {counted} of {len(all_workloads)} workloads -> {path}")
+
+
 def run(args):
     os.makedirs(args.out, exist_ok=True)
     workloads_file, text_dir = os.path.abspath(args.workloads), os.path.abspath(args.texts)
+    with open(workloads_file, encoding="utf-8") as f:
+        v8_counted = any("v8Count" in w for w in json.load(f))
     data_dir = os.path.abspath(args.data) if args.data else None
     runs = {"machine": describe_machine(), "started": now(), "sources": {}}
     pin = test_data(args.sources)
@@ -211,7 +247,9 @@ def run(args):
             mounts = ["-v", f"{workloads_file}:/workloads.json:ro", "-v", f"{text_dir}:/texts:ro"]
             if data_dir:
                 mounts += ["-v", f"{data_dir}:/data:ro"]
-            code = docker("run", "--rm", *mounts, "-v", f"{out}:/out", f"{image}:{tag}", timeout=limit)
+            # V8 once a night, in the source that sources.json marks: the page shows it from that source alone.
+            env = [] if source.get("v8") or not v8_counted else ["-e", "V8=0"]
+            code = docker("run", "--rm", *env, *mounts, "-v", f"{out}:/out", f"{image}:{tag}", timeout=limit)
         except subprocess.TimeoutExpired:
             code = "timed out"
         print("::endgroup::", flush=True)
@@ -241,7 +279,7 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=["workloads", "texts", "data", "run"])
+    parser.add_argument("command", choices=["workloads", "texts", "counts", "data", "run"])
     parser.add_argument("--sources", default=os.path.join(ROOT, "sources.json"))
     parser.add_argument("--work", default="work")
     parser.add_argument("--workloads", default="workloads.json")
@@ -252,7 +290,7 @@ def main():
     args = parser.parse_args()
     if args.command == "workloads":
         args.out = args.workloads
-    {"workloads": workloads, "texts": texts, "data": data, "run": run}[args.command](args)
+    {"workloads": workloads, "texts": texts, "counts": counts, "data": data, "run": run}[args.command](args)
 
 
 if __name__ == "__main__":
