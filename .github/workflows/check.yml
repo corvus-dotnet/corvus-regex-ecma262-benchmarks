@@ -1,0 +1,28 @@
+# The check of a pull request, which the ruleset of main requires: the tools compile, and the page builds with the
+# pull request's template and tools from the data already published. Nothing is published and no image is run.
+name: check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  page:
+    name: Page builds
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: The tools compile
+      run: python3 -m py_compile tools/*.py site/*.py
+    - name: Build the page from the published data
+      run: |
+        git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+        git worktree add --detach previous origin/gh-pages
+        python3 tools/build_site.py --data previous/data/latest.json --previous previous --out site-out
+        test -s site-out/index.html
