@@ -109,7 +109,14 @@ published run. The out directory is writable by any user, so the image may run a
    The repository's latest release is looked up for each, and an image that no release carries yet (a source added
    after the repository's last release) runs at `:latest` until the next release publishes its tag.
 
-The engine gains its rows on the page at the next nightly build, or straight away from a push to `main` here.
+3. Add an entry to `site/engines.json` for each engine the source measures: its name, the rows it covers
+   (`<id>/<name>`, as the merged data has them), how to get it (`package`: a label and a link) and its source. The page
+   lists them at its foot, with the version each run reports. An engine with no entry is listed without links, and the
+   page build says so.
+
+The engine gains its rows on the page at the next nightly build, or from a run started by hand (`workflow_dispatch`).
+A push to `main` here rebuilds the page from the published data, so a change to `site/engines.json` or the page shows
+straight away.
 
 ## Running it locally
 

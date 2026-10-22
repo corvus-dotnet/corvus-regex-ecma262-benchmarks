@@ -159,6 +159,23 @@ table.matrix { border-collapse: separate; border-spacing: 2px; font-family: var(
 .method { columns: 2 320px; column-gap: 32px; color: var(--ink-2); }
 .method p { margin: 0 0 10px; break-inside: avoid; }
 .method b { color: var(--ink); font-weight: 600; }
+.engines-wrap { overflow-x: auto; }
+table.engines { border-collapse: collapse; width: 100%; font-size: 14px; }
+.engines th, .engines td { text-align: left; vertical-align: top; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); }
+.engines thead th { color: var(--muted); font-size: 12px; font-weight: 600; }
+.engines tbody th { font-weight: 500; color: var(--ink); }
+.engines tr.grp th { padding-top: 16px; font-weight: 600; border-bottom: 0; }
+.engines td.ver, .engines td.rows { font-family: var(--font-data); font-size: 12px; color: var(--ink-2); }
+.engines td.rows span { display: block; }
+/* At phone width each engine is a block: its name, version and rows, then where to get it and its source. */
+@media (max-width: 640px) {
+  table.engines, .engines tbody { display: block; }
+  .engines thead { display: none; }
+  .engines tbody tr { display: grid; grid-template-columns: auto 1fr; gap: 2px 16px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .engines tbody tr.grp { display: block; border-bottom: 0; padding: 12px 0 0; }
+  .engines th, .engines td { border: 0; padding: 0; }
+  .engines tbody tr > th, .engines td.ver, .engines td.rows { grid-column: 1 / -1; }
+}
 
 #tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 8px 10px; font-size: 13px; max-width: 300px; }
 #tip .t-h { font-weight: 600; }
@@ -247,6 +264,12 @@ table.matrix { border-collapse: separate; border-spacing: 2px; font-family: var(
     <section id="method">
       <h2>How to read this</h2>
       <div class="method" id="method-text"></div>
+    </section>
+
+    <section id="engines" hidden>
+      <h2 id="engines-title"></h2>
+      <p class="note" id="engines-note"></p>
+      <div class="engines-wrap"><table class="engines" id="engines-table"></table></div>
     </section>
   </div>
 </main>
@@ -426,6 +449,38 @@ const HAS_COMPLIANCE = DATA.impls.some(i => i.compliance != null && i.compliance
 function implLabel(id) { const i = IMPL.get(id); return i ? i.name : id; }
 function baseLabel() { return state.baseline === "best" ? `the fastest selected ${V.impl} on each ${V.schema}` : implLabel(state.baseline); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- where each engine comes from (DATA.engines, when the page was built with them) ---------- */
+// A link's text: owner/name for a GitHub repository, the host for any other page.
+function linkText(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "github.com") return u.pathname.split("/").filter(Boolean).slice(0, 2).join("/");
+    return u.hostname.replace(/^www\./, "");
+  } catch (e) { return url; }
+}
+function renderEngines() {
+  const engines = DATA.engines || [];
+  if (!engines.length) return;
+  document.getElementById("engines").hidden = false;
+  document.getElementById("engines-title").textContent = V.Impls;
+  document.getElementById("engines-note").textContent =
+    `Every ${V.impl} on this page, the version its run reported, the rows it has here, and where to get it and its source.`;
+  let body = "", group = null;
+  for (const e of engines) {
+    if (e.group !== group) {
+      group = e.group;
+      body += `<tr class="grp"><th colspan="5" scope="colgroup">${esc(group)}</th></tr>`;
+    }
+    const pkg = e.package && e.package.url ? `<a href="${esc(e.package.url)}">${esc(e.package.label || linkText(e.package.url))}</a>` : "";
+    const src = e.source ? `<a href="${esc(e.source)}">${esc(linkText(e.source))}</a>` : "";
+    body += `<tr><th scope="row">${esc(e.name)}</th><td class="ver">${esc(e.versions.join(", "))}</td>` +
+      `<td class="rows">${e.rows.map(r => `<span>${esc(r)}</span>`).join("")}</td><td>${pkg}</td><td>${src}</td></tr>`;
+  }
+  document.getElementById("engines-table").innerHTML =
+    `<thead><tr><th scope="col">${esc(V.impl.charAt(0).toUpperCase() + V.impl.slice(1))}</th><th scope="col">Version</th><th scope="col">Rows</th>` +
+    `<th scope="col">Package</th><th scope="col">Source</th></tr></thead><tbody>${body}</tbody>`;
+}
 
 /* ---------- colour ---------- */
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -863,6 +918,7 @@ function init() {
   document.getElementById("title").textContent = meta.title;
   document.getElementById("lede").textContent = meta.lede || "";
   document.getElementById("method-text").innerHTML = meta.method || "";
+  renderEngines();
   document.getElementById("by-schema-title").textContent = `By ${V.schema}`;
   document.getElementById("schema-title").textContent = V.Schema;
   document.getElementById("schema-pick").setAttribute("aria-label", V.Schema);
