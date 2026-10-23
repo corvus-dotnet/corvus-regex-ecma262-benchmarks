@@ -1,14 +1,16 @@
-# Corvus ECMA-262 regex engine benchmarks
+# ECMA-262 regex engine benchmarks
 
-One page that shows the benchmark runs of every Corvus ECMA-262 regex engine side by side, with each platform's own
-regex engines and V8 as the common reference, over the Industry workloads of dotnet/performance.
+One page that shows ECMA-262 regex engines side by side, with each platform's own regex engines and V8 as the common
+reference: how closely each answers as V8 does over the ECMA-262 test data, and how fast each counts matches over the
+Industry workloads of dotnet/performance. Anyone can add an engine; see
+[implementing a source](docs/implementing-a-source.md).
 
 The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every night at 03:30 UTC. The
 merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`.
 
 **Every engine runs here.** Figures merged from runs on different runners are not comparable, so this repository's
 nightly workflow runs every engine itself: one job on one runner runs each engine repository's published container
-image, one after another, so every figure on the page was measured on one machine in one hour.
+image, one after another, so every figure on the page was measured on one machine in one night's run.
 
 ## How it works
 
@@ -40,8 +42,8 @@ plan's wording of what a source publishes:
   `meta`, `impls`, `schemas`, `measures`, `results`), and `benchmarks/runs/<date>-<commit>.json`, the same file
   kept per day.
 - `meta` carries the repository, the commit, the run's time, the runner and the host as the harness recorded them
-  (never typed in), the workflow run's URL, and the engine versions; `impls` are the repository's engines, the
-  platform's competitors and V8, each with its `group` (the language) and its compliance (the counts, or
+  (never typed in), the workflow run's URL, and the engine versions; `impls` are the engines the image measures
+  (its own and the platform's others) and V8, each with its `group` (the language) and its compliance (the counts, or
   "not ECMA-262"); `schemas` are the Industry workload ids, the same names in every repository (the list comes from
   one place, `workloads.py`); `measures.time` is nanoseconds per `Count`.
 
@@ -89,10 +91,10 @@ each release's version and `latest`, whose entry point is its benchmark harness.
 docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro -v <out dir>:/out <image>
 ```
 
-it runs its engines, its platform's competitors and V8 over the workloads (the texts are the gzipped files the
+it runs its engines (the source's own and the platform's others) and V8 over the workloads (the texts are the gzipped files the
 workloads name, in `/texts`), runs the ECMA-262 test data for each engine's compliance, and writes the data file to
-`/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source fall back to its
-published run. The out directory is writable by any user, so the image may run as a user of its own.
+`/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source "not run tonight", with
+the reason. The out directory is writable by any user, so the image may run as a user of its own.
 
 Given `-e V8=0`, the image runs neither V8's timings nor V8 over the test data, and its data file has no V8 row: it
 checks its engines' counts against each workload's `v8Count` (V8's count, which the nightly run writes into
