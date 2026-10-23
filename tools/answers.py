@@ -10,6 +10,8 @@ runner judges an engine" in its README): what a compliance figure of 100% is a s
   split3) and five over UTF-8 when its text holds no lone surrogate (all but the splits). Sticky, which starts at
   position 1, is not asked of an empty text, nor over UTF-8 where position 1 falls between the halves of a
   supplementary character: UTF-8 has no such position, as it has no form of a lone surrogate.
+- In ill-formed-utf8.jsonl a test holds bytes that are not UTF-8, and is one answer over UTF-8 alone (the right one
+  a refusal) under each grammar the pattern is valid in.
 
 An engine's figure is its right answers over the answers of the encodings it answers in, so an answer its runner did
 not ask counts against it as a wrong one does.
@@ -35,6 +37,7 @@ def count(data_dir):
     for name in sorted(f for f in os.listdir(data_dir) if f.endswith(".jsonl")):
         a16 = a8 = 0
         captures = name == "captures.jsonl"
+        ill_formed = name == "ill-formed-utf8.jsonl"
         with open(os.path.join(data_dir, name), encoding="utf-8", errors="surrogatepass") as f:
             for line in f:
                 if not line.strip():
@@ -48,6 +51,9 @@ def count(data_dir):
                     if not valid.get(grammar):
                         continue
                     for test in record.get("tests") or []:
+                        if ill_formed:
+                            a8 += 1
+                            continue
                         if test.get("v8_deviation") or grammar not in test:
                             continue
                         text = test.get("text", "")
