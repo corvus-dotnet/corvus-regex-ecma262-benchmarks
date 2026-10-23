@@ -4,8 +4,9 @@ Each source in the manifest (sources.json) is an engine repository. With `--runs
 tools/sources.py writes after running every source's container image on this machine), a source's data is the
 file its image wrote here. A source whose image did not run tonight is shown as not run, never filled in from a run
 on another machine, so every figure on the page was measured on this runner. Every file is checked
-against the data shape of site/generate_site.py; a source that cannot be read or does not have the shape is reported
-and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
+against the data shape of site/generate_site.py (`check`: the parts, ids, and the types of the names, versions,
+compliance, words and date the page reads); a source that cannot be read, does not have the shape or cannot be merged
+is reported and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
 
 - `impls`: every source's implementations, each id prefixed with the source id (`dotnet/Corvus interpreter`) and
   `group` set to the source's language; V8 once, from the first source that has it, in the group "V8";
@@ -53,11 +54,14 @@ LEDE = (
 )
 NO_ENGINE_RAN = "No engine ran on this runner tonight; the previous nights are in every day's data."
 LEDE_HERE = "Every engine ran on this runner tonight, in one job, so a figure compares across languages as well as within one."
-DEFAULT_VOCAB = {
+# The page's words for its axes, its figures and their spread: this repository's, whatever a source's file says, so
+# that the legend reads the same every night. A figure is the median of its rounds, its spread the fastest and the
+# slowest round (the protocol every harness keeps to).
+VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
     "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
-    "failed": "failed", "centre": "Mean", "spread": "StdDev",
-    "barLegend": "mean of the run", "whiskerLegend": "whisker: one standard deviation",
+    "failed": "failed", "centre": "Median", "spread": "fastest to slowest round",
+    "barLegend": "median of the rounds", "whiskerLegend": "whisker: the fastest and the slowest round",
 }
 
 
@@ -90,6 +94,21 @@ def check(data):
         if impl["id"] in ids:
             return f"the implementation id '{impl['id']}' is repeated"
         ids.add(impl["id"])
+        for key in ("name", "version"):
+            if impl.get(key) is not None and not isinstance(impl[key], str):
+                return f"the {key} of '{impl['id']}' is not a string"
+        if impl.get("compliance") is not None and not isinstance(impl["compliance"], (str, dict)):
+            return f"the compliance of '{impl['id']}' is neither a phrase nor an object"
+    vocab = data.get("vocab")
+    if vocab is not None and (not isinstance(vocab, dict) or not all(isinstance(v, str) for v in vocab.values())):
+        return "'vocab' is not an object of words"
+    date = data["meta"].get("date")
+    if date is not None:
+        parsed = parse_date(date)
+        if parsed is None:
+            return f"the date '{date}' is not an ISO 8601 date"
+        if parsed.tzinfo is None:
+            return f"the date '{date}' has no zone"
     for schema in data["schemas"]:
         if not isinstance(schema, dict) or not isinstance(schema.get("name"), str):
             return "a workload has no name"
@@ -102,6 +121,49 @@ def check(data):
         if not isinstance(results, dict):
             return f"the results of '{impl_id}' are not an object"
     return None
+
+
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def unicode_version(value):
+    """A version of Unicode as the page and the test data's overlays name it, "major.minor" ("18.0"), from a number
+    (18.0, which JSON writes as 18) or a dotted string ("18", "18.0", "18.0.0"); None when absent. Raises ValueError
+    on anything else. sources.py keys the answers of a version by this, and the page looks them up by it, so the two
+    always agree."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"the version of Unicode {value!r} is not a version")
+    parts = (f"{float(value):.1f}" if isinstance(value, (int, float)) else value.strip()).split(".")
+    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"the version of Unicode {value!r} is not a version")
+    return f"{int(parts[0])}.{int(parts[1]) if len(parts) > 1 else 0}"
+
+
+def normalise_compliance(c, pin=None):
+    """An engine's compliance with its version of Unicode as unicode_version() writes it and its dataCommit as the full
+    commit: a prefix of the night's pin (as the page's facts print it) becomes the pin. Raises ValueError on a version
+    that is not one, or on a dataCommit that is not a full commit and not a prefix of the pin, which could not be
+    fetched to count what it asks. A phrase ("not ECMA-262") or an absent compliance is returned as it is."""
+    if not isinstance(c, dict):
+        return c
+    c = dict(c)
+    if "unicode" in c:
+        c["unicode"] = unicode_version(c["unicode"])
+        if c["unicode"] is None:
+            del c["unicode"]
+    commit = c.get("dataCommit")
+    if commit not in (None, ""):
+        commit = str(commit).strip().lower()
+        if pin and len(commit) >= 7 and pin.lower().startswith(commit):
+            commit = pin
+        if not COMMIT.match(commit):
+            raise ValueError(f"the dataCommit '{c['dataCommit']}' is not a full commit of the test data")
+        c["dataCommit"] = commit
+    elif "dataCommit" in c:
+        del c["dataCommit"]
+    return c
 
 
 def is_v8(impl):
@@ -200,12 +262,69 @@ def page_text(here, test_data):
     return lede, [what, figure, measured, where, compliance, stopped, count]
 
 
+def take(source, data, ran, have_v8, pin=None):
+    """What one source adds to the page: its implementations (ids prefixed with the source id, grouped by its
+    language; V8 only when no source before it gave V8), their results, its measures and workloads, its date, its fact
+    and its links, and notes on any compliance not shown (normalise_compliance). Raises on a file it cannot read,
+    which merge() then reports as that source skipped."""
+    sid, language = source["id"], source["language"]
+    meta = data["meta"]
+    repo = source.get("repo") or meta.get("repo") or ""
+    part = {"defaultMeasure": meta.get("defaultMeasure"),
+            "measures": list(data["measures"].items()), "schemas": [dict(s) for s in data["schemas"]],
+            "impls": [], "results": {}, "v8": False, "v8Dropped": False, "links": [], "notes": []}
+    for impl in data["impls"]:
+        v8 = is_v8(impl)
+        if v8 and (have_v8 or part["v8"]):
+            part["v8Dropped"] = True
+            continue
+        merged = dict(impl)
+        merged["id"] = f"{sid}/{impl['id']}"
+        merged["name"] = impl.get("name") or impl["id"]
+        merged["group"] = "V8" if v8 else language
+        merged["source"] = sid
+        if v8 and merged["name"] == "V8":
+            # Named as every night's V8 row is ("V8 (Node 24)"), whichever source timed it.
+            node = re.search(r"Node v?(\d+)", str(impl.get("version") or ""))
+            merged["name"] = f"V8 (Node {node.group(1)})" if node else "V8"
+        try:
+            merged["compliance"] = normalise_compliance(impl.get("compliance"), pin)
+        except ValueError as e:
+            # Its compliance alone is not shown: the rest of the source is.
+            merged.pop("compliance", None)
+            part["notes"].append(f"{merged['name']}: {e}")
+        if merged.get("compliance") is None:
+            merged.pop("compliance", None)
+        part["v8"] = part["v8"] or v8
+        part["impls"].append(merged)
+        part["results"][merged["id"]] = data["results"].get(impl["id"], {})
+
+    date = meta.get("date") or ""
+    parsed = parse_date(date)
+    part["date"] = (parsed, date) if parsed else None
+    commit = str(meta.get("commit") or "")
+    when = parsed.strftime("%Y-%m-%d %H:%M UTC") if parsed and len(date) > 10 else (date or "time not recorded")
+    release = f"{ran.get('image', 'image')}:{ran.get('tag', '?')}"
+    started, finished = parse_date(ran.get("started")), parse_date(ran.get("finished"))
+    span = f"{started:%H:%M}-{finished:%H:%M} UTC" if started and finished else when
+    part["fact"] = f"{release}, commit {commit[:10] or 'not recorded'}, ran here {span}"
+    if repo:
+        part["links"].append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
+    if meta.get("runUrl"):
+        part["links"].append({"label": f"{language} run", "url": meta["runUrl"]})
+    # The page's own label is made here too, so that a name the label cannot read fails this source alone.
+    label([dict(i) for i in part["impls"]])
+    return part
+
+
 def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
-    vocab, default_measure = None, None
-    facts, links, notes = [], [], []
-    v8_from, v8_dropped = None, []
+    default_measure = None
+    facts, links, notes, unshown = [], [], [], []
+    pin = ((runs or {}).get("testData") or {}).get("commit")
+    v8_from, v8_sid, v8_dropped = None, None, []
+    v8_usual = next((s for s in sources if s.get("v8")), None)
     dates = []
     used = 0
     here = []
@@ -235,49 +354,38 @@ def merge(sources, run_url="", runs=None):
             facts.append([language, f"not run tonight: {why or 'its image did not run'}"])
             notes.append(f"{html.escape(language)}: not run tonight ({html.escape(why or 'its image did not run')})")
             continue
+        try:
+            # What the source adds is worked out whole before any of it is added, so that a surprise in one source's
+            # file skips that source and never stops the page.
+            part = take(source, data, ran, v8_from is not None, pin)
+        except Exception as e:  # noqa: BLE001 (any surprise in a source's file is that source's alone)
+            why = f"its data file could not be merged ({type(e).__name__}: {e})"
+            warn(f"{sid}: skipped ({why})")
+            facts.append([language, f"skipped: {why}"])
+            notes.append(f"{html.escape(language)}: skipped ({html.escape(why)})")
+            continue
         here.append(language)
         used += 1
-        meta = data["meta"]
-        repo = source.get("repo") or meta.get("repo") or ""
-        vocab = vocab or data.get("vocab")
-        default_measure = default_measure or meta.get("defaultMeasure")
-
-        for key, measure in data["measures"].items():
+        default_measure = default_measure or part["defaultMeasure"]
+        for key, measure in part["measures"]:
             measures.setdefault(key, measure)
-        for schema in data["schemas"]:
+        for schema in part["schemas"]:
             if schema["name"] not in schema_names:
                 schema_names.add(schema["name"])
                 schemas.append(schema)
-
-        for impl in data["impls"]:
-            v8 = is_v8(impl)
-            if v8 and v8_from is not None:
-                v8_dropped.append(language)
-                continue
-            merged = dict(impl)
-            merged["id"] = f"{sid}/{impl['id']}"
-            merged["name"] = impl.get("name") or impl["id"]
-            merged["group"] = "V8" if v8 else language
-            merged["source"] = sid
-            if v8:
-                v8_from = language
-            impls.append(merged)
-            results[merged["id"]] = data["results"].get(impl["id"], {})
-
-        date = meta.get("date") or ""
-        parsed = parse_date(date)
-        if parsed:
-            dates.append((parsed, date))
-        commit = str(meta.get("commit") or "")
-        when = parsed.strftime("%Y-%m-%d %H:%M UTC") if parsed and len(date) > 10 else (date or "time not recorded")
-        release = f"{ran.get('image', 'image')}:{ran.get('tag', '?')}"
-        started, finished = parse_date(ran.get("started")), parse_date(ran.get("finished"))
-        span = f"{started:%H:%M}-{finished:%H:%M} UTC" if started and finished else when
-        facts.append([language, f"{release}, commit {commit[:10] or 'not recorded'}, ran here {span}"])
-        if repo:
-            links.append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
-        if meta.get("runUrl"):
-            links.append({"label": f"{language} run", "url": meta["runUrl"]})
+        if part["v8Dropped"]:
+            v8_dropped.append(language)
+        if part["v8"]:
+            v8_from, v8_sid = language, sid
+        impls.extend(part["impls"])
+        results.update(part["results"])
+        if part["date"]:
+            dates.append(part["date"])
+        facts.append([language, part["fact"]])
+        for note in part["notes"]:
+            facts.append([language, f"compliance not shown: {note}"])
+            unshown.append(f"{html.escape(language)}: {html.escape(note)}")
+        links.extend(part["links"])
 
     label(impls)
 
@@ -286,8 +394,14 @@ def merge(sources, run_url="", runs=None):
         others = sorted(set(v8_dropped))
         dropped = f"; the V8 figures of the {', '.join(others)} run{'s' if len(others) > 1 else ''} are not shown" if others else ""
         method.append(f"<p><b>V8</b> appears once, from the {html.escape(v8_from)} run{html.escape(dropped)}.</p>")
+    if v8_from and v8_usual and v8_sid != v8_usual.get("id"):
+        # V8 came from a source that times it only when the usual one has not (sources.py run).
+        facts.append(["V8", f"timed by the {v8_from} image tonight, since the {v8_usual.get('language')} image, which "
+                            "times it on other nights, gave no V8"])
     if notes:
         method.append("<p><b>Sources skipped this time:</b> " + "; ".join(notes) + ".</p>")
+    if unshown:
+        method.append("<p><b>Compliance not shown:</b> " + "; ".join(unshown) + ".</p>")
     # Each image's own method text stays in its data file; the page's text is this repository's (page_text and
     # site/engines.json), so that it reads the same for every engine.
 
@@ -316,7 +430,7 @@ def merge(sources, run_url="", runs=None):
         meta["defaultMeasure"] = default_measure
     return used, {
         "meta": meta,
-        "vocab": vocab or DEFAULT_VOCAB,
+        "vocab": dict(VOCAB),
         "measures": measures,
         "impls": impls,
         "schemas": schemas,
@@ -326,14 +440,16 @@ def merge(sources, run_url="", runs=None):
 
 def restate(data):
     """A published data file with the page's text made again by this code, its figures untouched: the title, the
-    lede, the general method and every row's platform label. A push of this repository builds the page again from the
-    published data without running an image, and this is how a change to the page's text reaches it then. The parts
-    of the method that belong to the run (which run V8 came from, the sources skipped) are kept."""
+    lede, the general method, the page's words (VOCAB) and every row's platform label. A push of this repository
+    builds the page again from the published data without running an image, and this is how a change to the page's
+    text reaches it then. The parts of the method that belong to the run (which run V8 came from, the sources
+    skipped) are kept."""
     meta = data.setdefault("meta", {})
     old = meta.get("method", "")
     lede, method = page_text(NO_ENGINE_RAN not in meta.get("lede", ""), meta.get("testData"))
-    kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>).*?</p>", old, flags=re.S)
+    kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>|Compliance not shown:</b>).*?</p>", old, flags=re.S)
     meta["title"], meta["lede"], meta["method"] = TITLE, lede, "".join(method + kept)
+    data["vocab"] = dict(VOCAB)
     label(data.get("impls", []))
     return data
 

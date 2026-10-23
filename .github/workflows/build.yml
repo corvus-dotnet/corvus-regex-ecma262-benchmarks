@@ -5,15 +5,17 @@
 #
 # One job: write the Industry workloads once (the .NET repository's workloads.py, at its newest release) and
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
-# its newest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
+# its newest release whose image can be pulled (latest only for a repository with no release) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
 # here beyond Python and Docker. Every image is given the ECMA-262 test data at the commit sources.json pins (testData),
 # mounted at /data, so every engine of a night is judged on the same data. The images run within 300 minutes in all
-# (--budget-minutes), and runs.json is written after each, so a night cut short still publishes what ran.
+# (--budget-minutes; no source starts with less than 10 minutes left, and a container whose time runs out is killed
+# and removed before the next source starts), and runs.json is written after each, so a night cut short still
+# publishes what ran.
 # tools/merge.py merges the files; a source whose image cannot be pulled or fails is
 # shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
-# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces
-# the branch.
+# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day (the day of the run, from the
+# data's date; a push writes none), in one commit that replaces the branch.
 name: build
 
 on:
@@ -44,9 +46,13 @@ jobs:
       with:
         # The Node of the harness images, whose V8 counts each workload once for every image (the counts step).
         node-version: '24.22.0'
+    - name: Sign in to the container registry
+      if: github.event_name != 'push'
+      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
     - name: Write the workloads
-      # The list comes from one place, the .NET repository's workloads.py, at its newest release. Without it no image
-      # can run, and every source is shown as not run.
+      # The list comes from one place, the .NET repository's workloads.py, at its newest release whose image can be
+      # pulled (kept in work/pins.json, so that the .NET image runs at the same release). Without it no image can run,
+      # and every source is shown as not run.
       id: workloads
       if: github.event_name != 'push'
       continue-on-error: true
@@ -67,10 +73,12 @@ jobs:
       run: python3 tools/sources.py texts --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
     - name: Count each workload under V8
       # Once for every image: an image run with V8=0 checks its engines' counts against these instead of timing V8.
-      # Without them, every image times V8 as before.
+      # All or none: without a count for every workload, every image times V8 as before. The limit keeps the step from
+      # eating into the time the images need.
       id: counts
       if: steps.texts.outcome == 'success'
       continue-on-error: true
+      timeout-minutes: 15
       run: python3 tools/sources.py counts --work work --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
     - name: Fetch the test data
       # At the commit sources.json pins, for every image.
@@ -78,9 +86,6 @@ jobs:
       if: steps.texts.outcome == 'success'
       continue-on-error: true
       run: python3 tools/sources.py data --data test-data
-    - name: Sign in to the container registry
-      if: steps.data.outcome == 'success'
-      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
     - name: Run every source's image
       if: steps.data.outcome == 'success'
       continue-on-error: true
@@ -89,13 +94,36 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --data test-data/data --budget-minutes 300 --out out-data
+    - name: Keep the run
+      # Before the merge, and whatever happened before it, so that what each image wrote is kept on the nights the
+      # merge or the publish fails, which are the nights it is needed.
+      if: always() && github.event_name != 'push'
+      uses: actions/upload-artifact@v4
+      with:
+        name: runs-${{ github.run_id }}
+        if-no-files-found: ignore
+        path: |
+          out-data
+          workloads.json
     - name: Fetch the published site
-      # The days already published are kept; the first run finds no branch and starts the list.
+      # The days already published are kept; the first run finds no branch and starts the list. Only a branch that is
+      # not there starts it (git ls-remote exits 2): any other failure to read it fails the step, so a network fault
+      # never publishes a site that has lost every day before tonight.
+      id: previous
       run: |
-        if git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages; then
-          git worktree add --detach previous origin/gh-pages
-        else
+        found=0
+        git ls-remote --exit-code --heads origin gh-pages > /dev/null || found=$?
+        if [ "$found" = 2 ]; then
+          echo "No gh-pages branch yet: this run starts the list of days."
           mkdir previous
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        elif [ "$found" != 0 ]; then
+          echo "::error::The gh-pages branch could not be read (git ls-remote exited $found)."
+          exit 1
+        else
+          git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          git worktree add --detach previous origin/gh-pages
+          echo "exists=true" >> "$GITHUB_OUTPUT"
         fi
     - name: Merge the runs
       if: github.event_name != 'push'
@@ -111,19 +139,19 @@ jobs:
       run: |
         mkdir -p out-data
         python3 tools/merge.py --restate previous/data/latest.json --out out-data/latest.json
-    - name: Keep the run
-      if: github.event_name != 'push'
-      uses: actions/upload-artifact@v4
-      with:
-        name: runs-${{ github.run_id }}
-        path: |
-          out-data
-          workloads.json
     - name: Build the site
-      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
+      # A push ran no image, so it writes no day file: the day of the data it builds from is already published.
+      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out ${{ github.event_name == 'push' && '--no-day' || '' }}
     - name: Publish to gh-pages
       if: github.ref == 'refs/heads/main'
+      env:
+        PREVIOUS_EXISTS: ${{ steps.previous.outputs.exists }}
       run: |
+        # The branch is replaced whole, so a site built without the days already published would lose them for good.
+        if [ "$PREVIOUS_EXISTS" = true ] && ! ls previous/data/runs/*.json > /dev/null 2>&1; then
+          echo "::error::gh-pages exists but no day of data was read from it; not publishing."
+          exit 1
+        fi
         touch site-out/.nojekyll
         export GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD/site-out" GIT_INDEX_FILE="$RUNNER_TEMP/gh-pages.index"
         git add --all

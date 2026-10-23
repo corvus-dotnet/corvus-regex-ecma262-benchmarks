@@ -6,7 +6,8 @@ Industry workloads of dotnet/performance. Anyone can add an engine; see
 [implementing a source](docs/implementing-a-source.md).
 
 The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every night at 03:30 UTC. The
-merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`.
+merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`, named by the day the
+run measured it (a rebuild of the page after a push to this repository adds no day).
 
 **Every engine runs here.** Figures merged from runs on different runners are not comparable, so this repository's
 nightly workflow runs every engine itself: one job on one runner runs each engine repository's published container
@@ -18,12 +19,14 @@ image, one after another, so every figure on the page was measured on one machin
 beyond Python and Docker:
 
 1. `tools/sources.py workloads` writes the Industry workloads once to `workloads.json`, with the .NET repository's
-   `tools/benchmarks/v8/workloads.py` at its newest release (the list comes from one place).
+   `tools/benchmarks/v8/workloads.py` at its newest release whose image can be pulled (the list comes from one
+   place; the .NET image then runs at that same release).
 2. `tools/sources.py texts` downloads their texts once (dotnet/performance's gzipped files, the URLs of the .NET
    repository's `Inputs.cs`) into `~/.local/share/corvus-regex-benchmarks/`, cached between runs.
-3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's newest GitHub release, a package
-   release or a harness release (or `latest` when there is no release or that tag cannot be pulled), and runs it as
-   the image contract below says, into `out-data/<id>/`, one source after another.
+3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's newest GitHub release whose
+   image can be pulled, a package release or a harness release (a release whose image is not published yet gives way
+   to the one before it; `latest` only for a repository with no release at all), and runs it as the image contract
+   below says, into `out-data/<id>/`, one source after another.
 4. `tools/merge.py` merges the data files the images wrote (implementations grouped by language, V8 once, every
    workload matched by id); `tools/build_site.py` writes the page (with `site/generate_site.py` and
    `site/template.html`) and the data of the day, and the job publishes them to this repository's `gh-pages`.
@@ -98,10 +101,14 @@ the reason. The out directory is writable by any user, so the image may run as a
 
 Given `-e V8=0`, the image runs neither V8's timings nor V8 over the test data, and its data file has no V8 row: it
 checks its engines' counts against each workload's `v8Count` (V8's count, which the nightly run writes into
-`workloads.json` once, before any image runs) where it would have checked them against its own V8 run, so a Corvus
-engine that counts otherwise is still an error and another engine's row is still marked where its count differs. The
+`workloads.json` once, before any image runs) where it would have checked them against its own V8 run, so an
+ECMA-262 engine that counts otherwise is still an error and another engine's row is still marked where its count
+differs. The counts are all or none: when V8 cannot count every workload, no workload carries a count and no image is
+given `V8=0`. The
 page shows V8 once, so the nightly run gives `V8=0` to every source but the one `sources.json` marks `"v8": true` (the
-.NET source); an image that does not know the variable still runs V8, whose rows the merge then leaves out.
+.NET source); when that source has had its turn and given no V8 (its image failed or could not be pulled), the next
+source runs without `V8=0`, and so on until one gives V8, and the page says which image timed it. An image that does
+not know the variable still runs V8, whose rows the merge then leaves out.
 
 ## Adding a source
 

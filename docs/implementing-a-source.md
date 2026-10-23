@@ -129,7 +129,8 @@ asked:
 - `grammars`: the grammars the engine implements, of `"legacy"`, `"unicode"` (u) and `"unicode_sets"` (v). An engine
   that implements only some (SRELL has only u and v; `std::regex` has neither) gives them, and its runner asks under
   those alone. Absent, the engine is taken to implement all three.
-- `unicode`: the version of the engine's Unicode Character Database (`"18.0"`). An engine whose version is not the
+- `unicode`: the version of the engine's Unicode Character Database, as `"major.minor"` (`"18.0"`; a number, or a
+  string such as `"18"` or `"18.0.0"`, is read as that). An engine whose version is not the
   data's (V8's, in the data's `manifest.json`) gives it, and its runner reads the data with that version's overlay
   applied (`node unicode.js apply <version> <dir>` in the test data repository), so that it is asked the answers of
   its version. Absent, the engine is taken to have the data's version.
@@ -170,10 +171,12 @@ progress within that limit counts as unanswered, together with every answer it w
 
 Such a run can take a long time (regress takes over an hour), so the image does not repeat it every night. The source
 works out those counts once and checks them in beside the harness as `compliance-<engine>.txt`. Such counts are tied
-to the commit of the data they were made at, and are kept honest by three rules.
+to the commit of the data they were made at, and are held to three rules.
 
 - **The file says its commit.** Its first line is `data <full commit>`, the commit of the test data the counts were
-  made at; the runner's output follows.
+  made at; the runner's output follows. The commit is the full 40 characters: a prefix of the nightly pin is read as
+  the pin, and any other commit that is not a full one leaves the engine's compliance off the page, with a note that
+  says why (the rest of the source is shown).
 - **The page judges them against that commit.** The results script copies the commit into the engine's `compliance`
   object as `dataCommit`. When it differs from the nightly pin, the nightly build counts what that commit asks with
   `tools/answers.py`, and the page shows the engine's share of those answers with "counted at the test data's
@@ -237,7 +240,8 @@ A harness must keep to these rules.
 
 V8 is the reference. The harness compares every engine's count on every workload with V8's count. That is either from
 the harness's own V8 run or, with `V8=0`, the workload's `v8Count`, which the nightly build works out once and writes
-into the workloads.
+into the workloads. The nightly build writes a count into every workload or into none, and gives no image `V8=0`
+without them, so a harness given `V8=0` always has a count to check against.
 
 If an ECMA-262 engine's count differs, it gets no figure on that workload. Instead it gets the error
 `counted N where V8 counts M`, which the data file carries as `{"wrongCount": {"counted": N, "v8": M}}`. The page shows
@@ -262,13 +266,16 @@ well if it was stopped at the limit. The results script turns this into the data
 The image writes one data file, `/out/industry.json`, in the page's shape, which is documented at the top of
 `site/generate_site.py` in this repository.
 
-- `meta`: the title, the repository, the commit, the date, the workflow run's URL, the runner and the host as the
+- `meta`: the title, the repository, the commit, the date (ISO 8601 with its zone, such as
+  `2026-10-24T05:00:00Z`), the workflow run's URL, the runner and the host as the
   harness recorded them (never typed in by hand), the facts, and `method`, an HTML description of how the figures were
-  made. The method stays in the data for anyone reading it; the page itself does not show it. The page's text is this
+  made. The method stays in the data for anyone reading it; the page itself does not show it, nor the file's
+  `vocab` (the page's words for its axes and the spread of a figure are this repository's). The page's text is this
   repository's, so that it reads the same for every engine: the general text in `tools/merge.py` and each engine's
   `how` in `site/engines.json` (see [Registering](#registering)).
 - `impls`: one entry per engine, with its `id`, its `name`, its `group` (the language; V8's group is `V8`), its
-  `version` as the engine reports it, and its `compliance` (the object above, or `"not ECMA-262"`).
+  `version` as the engine reports it, and its `compliance` (the object above, or `"not ECMA-262"`). The id, the name
+  and the version are strings.
 - `schemas`: one entry per workload, named by its `id`, with its text in `meta`.
 - `measures`: `time`, in nanoseconds per count.
 - `results`: for each engine and workload, `{"time": {"median": n, "min": n, "max": n}}`. A figure that failed has
@@ -282,8 +289,10 @@ The image writes one data file, `/out/industry.json`, in the page's shape, which
 
   Never use `null` for a failure whose reason the harness knows.
 
-When the nightly build merges the sources, it prefixes every engine id with the source id, groups engines by language,
-shows V8 once, matches workloads by name, and dates the page by its newest source.
+A file whose parts, ids, names, versions, compliance or date are not of these kinds is not merged: the source is
+shown as not run that night, with the reason. When the nightly build merges the sources, it prefixes every engine id
+with the source id, groups engines by language, shows V8 once, matches workloads by name, and dates the page by its
+newest source.
 
 ## The image
 
@@ -302,7 +311,8 @@ It takes these variables:
 
 - `V8=0`: no V8 timings and no V8 run over the test data. Counts are checked against each workload's `v8Count`, and
   the data file has no V8 row. The nightly build sets it for every source except the one `sources.json` marks
-  `"v8": true`.
+  `"v8": true`, and, on a night that source gives no V8, for every source but the next, which times V8 in its place.
+  So every image must still be able to time V8 and run it over the test data when the variable is absent.
 - `JOB=short`: the quick look, for smoke runs.
 - `COUNT_GATE=1`: the count gate alone (see above), for CI.
 
@@ -320,7 +330,7 @@ The workflow (`.github/workflows/harness-image.yml`) runs on pull requests, on `
 ### Releases
 
 A change to a harness reaches the page only once it is released, because the nightly build takes each source's image
-at the tag of its repository's newest GitHub release. There are two kinds of release.
+at the tag of its repository's newest GitHub release whose image is published. There are two kinds of release.
 
 - **A package release** (`v<version>`, or the version alone where the package manager reads tags that way) publishes
   the engine or binding to its package registry and the harness image. Every package publish workflow checks that the
@@ -344,10 +354,13 @@ at the tag of its repository's newest GitHub release. There are two kinds of rel
    - `language` is the group the engines appear under.
    - `repo` is the GitHub repository whose releases tag the image.
    - `image` is the image without a tag.
-   - `ref` is `latest-release`: the tag of the repository's newest release of either kind, or `latest` if it has
-     none.
-   - `timeoutMinutes` (optional, default 150) bounds the source's run.
-   - `"v8": true` marks the one source whose V8 figures the page shows.
+   - `ref` is `latest-release`: the tag of the repository's newest release of either kind whose image can be
+     pulled (a release whose image is not published yet gives way to the one before it), or `latest` if the
+     repository has no release at all.
+   - `timeoutMinutes` (optional, default 150) bounds the source's pull and run together. A container still running
+     then is killed and removed, and the source is shown as not run that night.
+   - `"v8": true` marks the one source that times V8 each night, whose V8 figures the page shows. On a night it
+     gives none, the next source in the list times V8 instead, and the page says so.
 
    One repository can provide two sources, each with its own image. The Rust crate and its C library are the sources
    `rust` and `c`.

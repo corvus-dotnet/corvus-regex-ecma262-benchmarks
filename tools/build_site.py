@@ -3,7 +3,9 @@
     out/index.html              the results page (site/generate_site.py)
     out/favicon.svg             its icon
     out/data/latest.json        the merged data
-    out/data/runs/<date>.json   the merged data of each day: the days already published are kept from --previous
+    out/data/runs/<date>.json   the merged data of each day, named by the day of its run (meta.date), not of the build:
+                                the days already published are kept from --previous, and --no-day (a build that ran
+                                no image) writes no day of its own
     out/data/runs/index.html    the list of those days
 
 Every path is relative, so the site works under any base path (it is served at /corvus-regex-ecma262-benchmarks/).
@@ -11,6 +13,7 @@ Python 3 standard library only.
 
 Usage:
     python3 tools/build_site.py --data data/latest.json --out out [--previous <the published site>] [--date yyyy-mm-dd]
+                                [--no-day]
 """
 
 import argparse
@@ -30,12 +33,20 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DAY = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
 
 
+def day_of(data):
+    """The day a run's data belongs to: its date (the newest source's, meta.date), which a run that starts late or
+    builds after midnight keeps; today (UTC) only for data with no date."""
+    date = str((data.get("meta") or {}).get("date") or "")
+    return date[:10] if DAY.match(date[:10] + ".json") else datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--previous", help="A copy of the published site, whose data/runs are kept.")
-    parser.add_argument("--date", default=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"))
+    parser.add_argument("--date", help="The day file's name; by default the day of the run, the data's meta.date.")
+    parser.add_argument("--no-day", action="store_true", help="Write no day file: the build ran no image (a push).")
     args = parser.parse_args()
 
     runs = os.path.join(args.out, "data", "runs")
@@ -47,13 +58,14 @@ def main():
                 if DAY.match(name):
                     shutil.copyfile(os.path.join(kept, name), os.path.join(runs, name))
 
+    with open(args.data, encoding="utf-8") as f:
+        data = json.load(f)
     shutil.copyfile(args.data, os.path.join(args.out, "data", "latest.json"))
-    shutil.copyfile(args.data, os.path.join(runs, f"{args.date}.json"))
+    if not args.no_day:
+        shutil.copyfile(args.data, os.path.join(runs, f"{args.date or day_of(data)}.json"))
     shutil.copyfile(os.path.join(ROOT, "site", "favicon.svg"), os.path.join(args.out, "favicon.svg"))
     # Data merged before the page linked this repository and the test data gains the links here, so the page has
     # them from the next push rather than the next run; the data files themselves are published as they were merged.
-    with open(args.data, encoding="utf-8") as f:
-        data = json.load(f)
     links = data["meta"].get("links", [])
     labels = {l.get("label") for l in links}
     data["meta"]["links"] = [l for l in site_links() if l["label"] not in labels] + links
