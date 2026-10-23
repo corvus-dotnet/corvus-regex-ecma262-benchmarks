@@ -201,7 +201,9 @@ def run(args):
     runs = {"machine": describe_machine(), "started": now(), "sources": {}}
     pin = test_data(args.sources)
     if data_dir and pin:
-        runs["testData"] = pin
+        # With the number of answers the data asks in each encoding, which every engine's compliance is a share of.
+        import answers
+        runs["testData"] = dict(pin, answers={k: v for k, v in answers.count(data_dir).items() if k != "files"})
     start = datetime.datetime.now(datetime.timezone.utc)
 
     def save():

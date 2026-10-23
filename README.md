@@ -1,14 +1,16 @@
-# Corvus ECMA-262 regex engine benchmarks
+# ECMA-262 regex engine benchmarks
 
-One page that shows the benchmark runs of every Corvus ECMA-262 regex engine side by side, with each platform's own
-regex engines and V8 as the common reference, over the Industry workloads of dotnet/performance.
+One page that shows ECMA-262 regex engines side by side, with each platform's own regex engines and V8 as the common
+reference: how closely each answers as V8 does over the ECMA-262 test data, and how fast each counts matches over the
+Industry workloads of dotnet/performance. Anyone can add an engine; see
+[implementing a source](docs/implementing-a-source.md).
 
 The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every night at 03:30 UTC. The
 merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`.
 
 **Every engine runs here.** Figures merged from runs on different runners are not comparable, so this repository's
 nightly workflow runs every engine itself: one job on one runner runs each engine repository's published container
-image, one after another, so every figure on the page was measured on one machine in one hour.
+image, one after another, so every figure on the page was measured on one machine in one night's run.
 
 ## How it works
 
@@ -40,8 +42,8 @@ plan's wording of what a source publishes:
   `meta`, `impls`, `schemas`, `measures`, `results`), and `benchmarks/runs/<date>-<commit>.json`, the same file
   kept per day.
 - `meta` carries the repository, the commit, the run's time, the runner and the host as the harness recorded them
-  (never typed in), the workflow run's URL, and the engine versions; `impls` are the repository's engines, the
-  platform's competitors and V8, each with its `group` (the language) and its compliance (the counts, or
+  (never typed in), the workflow run's URL, and the engine versions; `impls` are the engines the image measures
+  (its own and the platform's others) and V8, each with its `group` (the language) and its compliance (the counts, or
   "not ECMA-262"); `schemas` are the Industry workload ids, the same names in every repository (the list comes from
   one place, `workloads.py`); `measures.time` is nanoseconds per `Count`.
 
@@ -54,14 +56,21 @@ The data shape itself is documented at the top of `site/generate_site.py`. In br
   "vocab": { "impl": "engine", "impls": "engines", "schema": "workload", "schemas": "workloads", "...": "..." },
   "measures": { "time": { "label": "Time", "long": "time per Count", "parts": ["time"] } },
   "impls": [{ "id": "Corvus interpreter", "name": "Corvus interpreter", "group": "Rust", "version": "0.1.0",
-              "compliance": { "right": 22895231, "wrong": 0, "refused": 0, "acceptedInvalid": 0 } }],
+              "compliance": { "right": 26950829, "wrong": 0, "refused": 0, "acceptedInvalid": 0, "limited": 0,
+                              "encodings": ["utf16", "utf8"] } }],
   "schemas": [{ "name": "sherlock: Holmes", "note": "", "meta": [["text", "..."]] }],
   "results": { "Corvus interpreter": { "sherlock: Holmes": { "time": { "median": 1.0, "min": 0.9, "max": 1.1 } } } }
 }
 ```
 
-`compliance` is the engine's result on the ECMA-262 test data: an object of counts, the string `"not ECMA-262"` for
-an engine of another dialect, or `"the oracle of the test data"` for V8. The page shows it beside the engine's name.
+`compliance` is the engine's result on the ECMA-262 test data: an object of counts (`right`, `wrong`, `refused`,
+`acceptedInvalid`, `limited`), with `encodings`, the encodings its runner answers in (`"utf16"`, `"utf8"`), and an
+optional `note`; or the string `"not ECMA-262"` for an engine of another dialect. The page shows it beside the
+engine's name as its right answers over every answer the test data asks in those encodings, which the nightly run
+counts from the pinned data by the data's own rule (`tools/answers.py`, carried in `meta.testData.answers`): an answer
+its runner did not ask counts against it as a wrong one does, so 100% means every answer asked and right. A runner
+that gives no `encodings` has a share of what it asked, which never reads as fully compliant. V8 has its counts like
+any other engine.
 The runner is read from `meta.runner`, or from a fact named `Host` or `Runner`.
 
 How the merge treats a source's data:
@@ -82,10 +91,10 @@ each release's version and `latest`, whose entry point is its benchmark harness.
 docker run --rm -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro -v <out dir>:/out <image>
 ```
 
-it runs its engines, its platform's competitors and V8 over the workloads (the texts are the gzipped files the
+it runs its engines (the source's own and the platform's others) and V8 over the workloads (the texts are the gzipped files the
 workloads name, in `/texts`), runs the ECMA-262 test data for each engine's compliance, and writes the data file to
-`/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source fall back to its
-published run. The out directory is writable by any user, so the image may run as a user of its own.
+`/out/industry.json`. A non-zero exit, or a file without the shape above, makes the source "not run tonight", with
+the reason. The out directory is writable by any user, so the image may run as a user of its own.
 
 Given `-e V8=0`, the image runs neither V8's timings nor V8 over the test data, and its data file has no V8 row: it
 checks its engines' counts against each workload's `v8Count` (V8's count, which the nightly run writes into
@@ -94,36 +103,14 @@ engine that counts otherwise is still an error and another engine's row is still
 page shows V8 once, so the nightly run gives `V8=0` to every source but the one `sources.json` marks `"v8": true` (the
 .NET source); an image that does not know the variable still runs V8, whose rows the merge then leaves out.
 
-## Registering a source
+## Adding a source
 
-1. In the engine repository, publish the image above (`:latest` from main, and the version tag from each release),
-   with a smoke run of it in the same workflow. The engine repository publishes no page and no results of its own:
-   this site is the one page. The .NET repository is the model: `.github/workflows/harness-image.yml` in
-   [corvus-dotnet/Corvus.Regex.Ecma262](https://github.com/corvus-dotnet/Corvus.Regex.Ecma262).
-2. Add one entry to `sources.json` here:
-
-   ```json
-   { "id": "rust", "language": "Rust", "repo": "corvus-dotnet/corvus-regex-ecma262-rs", "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rs", "ref": "latest-release" }
-   ```
-
-   `id` is short and unique (it prefixes the implementation ids, and so appears in the page's address);
-   `language` is the group the engines appear under; `image` is the image without
-   a tag; `ref` is `latest-release` (the release's tag, else `latest`), the only policy so far. An optional
-   `timeoutMinutes` (default 150) bounds the run.
-
-   Two sources may come from one repository: the Rust crate and its C library both live in
-   `corvus-dotnet/corvus-regex-ecma262-rs`, as the sources `rust` and `c`, each with its own image, id and language.
-   The repository's latest release is looked up for each, and an image that no release carries yet (a source added
-   after the repository's last release) runs at `:latest` until the next release publishes its tag.
-
-3. Add an entry to `site/engines.json` for each engine the source measures: its name, the rows it covers
-   (`<id>/<name>`, as the merged data has them), how to get it (`package`: a label and a link) and its source. The page
-   lists them at its foot, with the version each run reports. An engine with no entry is listed without links, and the
-   page build says so.
-
-The engine gains its rows on the page at the next nightly build, or from a run started by hand (`workflow_dispatch`).
-A push to `main` here rebuilds the page from the published data, so a change to `site/engines.json` or the page shows
-straight away.
+**[docs/implementing-a-source.md](docs/implementing-a-source.md)** is the guide to implementing a new source: what to
+build (a data-set runner, an Industry harness, a results script, the image and its workflow), how a runner judges the
+ECMA-262 test data and how the page turns its counts into a compliance figure (the rule, the encodings, ill-formed
+UTF-8, checking a runner against `tools/answers.py` and the test data's fuzzer), the constraints on the benchmark (the
+interleaved protocol, the 30 s limit on a figure, the count check against V8 and its CI gate, validation outside what
+is timed), the data file and the image, and registering it in `sources.json` and `site/engines.json`.
 
 ## Running it locally
 

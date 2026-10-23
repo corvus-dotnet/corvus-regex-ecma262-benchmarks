@@ -1,4 +1,4 @@
-"""Merges the benchmark runs of every Corvus ECMA-262 regex engine into one results-page data file.
+"""Merges the runs of every source's image into one results-page data file.
 
 Each source in the manifest (sources.json) is an engine repository. With `--runs` (the runs.json that
 tools/sources.py writes after running every source's container image on this machine), a source's data is the
@@ -31,7 +31,7 @@ import os
 import sys
 import urllib.request
 
-TITLE = "Corvus ECMA-262 regex engines: the Industry benchmarks"
+TITLE = "ECMA-262 regex engines: compliance and the Industry benchmarks"
 REPO = "corvus-dotnet/corvus-regex-ecma262-benchmarks"
 TEST_DATA_REPO = "corvus-dotnet/ecma262-regex-test-data"
 
@@ -44,14 +44,14 @@ def site_links(test_data=None):
     return [{"label": "How the benchmarks run", "url": f"https://github.com/{REPO}"},
             {"label": "ECMA-262 test data", "url": data_url}]
 LEDE = (
-    "Every Corvus ECMA-262 regex engine, its platform's own regex engines and V8, over the Industry workloads of "
-    "dotnet/performance. "
+    "ECMA-262 regex engines, each platform's own regex engines and V8, judged on the ECMA-262 test data and timed "
+    "over the Industry workloads of dotnet/performance. "
 )
-LEDE_HERE = "Every engine ran on this runner in this hour, in one job, so a figure compares across languages as well as within one."
+LEDE_HERE = "Every engine ran on this runner tonight, in one job, so a figure compares across languages as well as within one."
 DEFAULT_VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
     "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
-    "failed": "did not run", "centre": "Mean", "spread": "StdDev",
+    "failed": "failed", "centre": "Mean", "spread": "StdDev",
     "barLegend": "mean of the run", "whiskerLegend": "whisker: one standard deviation",
 }
 
@@ -215,19 +215,30 @@ def merge(sources, run_url="", runs=None):
     lede = LEDE + (LEDE_HERE if here else "No engine ran on this runner tonight; the previous nights are in every day's data.")
     where = (
         f"<p><b>Where the figures come from.</b> <a href=\"https://github.com/{REPO}\">This repository</a>'s nightly "
-        "workflow runs each engine repository's published container image, at its latest release, one after another "
-        "in one job on one runner; each image runs its engines, its platform's competitors and V8 over the workloads, "
-        f"then <a href=\"{site_links(runs.get('testData') if runs else None)[1]['url']}\">the ECMA-262 test data</a> for "
-        "compliance. So the figures of every engine run here were measured on one machine in one hour.</p>"
+        "workflow runs each source's published container image, at its latest release, one after another in one job "
+        "on one runner; each image runs its engines (the source's own and the platform's others) and V8 over the "
+        f"workloads, then <a href=\"{site_links(runs.get('testData') if runs else None)[1]['url']}\">the ECMA-262 test data</a> for "
+        "compliance. So the figures of every engine run here were measured on one machine in one night's run. "
+        f"Anyone can add an engine: see <a href=\"https://github.com/{REPO}/blob/main/docs/implementing-a-source.md\">"
+        "implementing a source</a>.</p>"
         if here else
         "<p><b>Where the figures come from.</b> No engine's image ran tonight.</p>"
     )
     method = [
         where,
         "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data, whose answers are "
-        "V8's: the share of the data it answered as V8 does, right over everything judged (the counts are in its "
-        "tooltip), \"the oracle\" for V8, and \"not ECMA-262\" for an engine that implements another "
-        "dialect, whose figures are a reference for speed and not for answers.</p>",
+        "V8's: its right answers over every answer the data asks in the encodings the engine answers in, counted by "
+        "the data's own rule (tools/answers.py), so that an answer its runner did not ask counts against it as a "
+        "wrong one does. An engine with one encoding is a share of that encoding's answers, and says which. The counts "
+        "are in its tooltip. \"Not ECMA-262\" marks an engine that implements another dialect, whose figures are a "
+        "reference for speed and not for answers.</p>",
+        "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
+        "figure that has not finished in 30 s and does not run it again in the workload's later rounds, so such a "
+        "cell has no figure, and the engine is not ranked on that workload.</p>",
+        "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
+        "a wrong answer. An ECMA-262 engine with one has no figure there, and is not shown as fully compliant beside "
+        "its name whatever its share of the test data. A cell marked failed says, in its tooltip, what the harness "
+        "reported.</p>",
     ]
     if v8_from:
         others = sorted(set(v8_dropped))
@@ -251,6 +262,9 @@ def merge(sources, run_url="", runs=None):
         "links": links,
         "method": "".join(method),
     }
+    if runs and runs.get("testData"):
+        # The pin of the test data and the answers it asks in each encoding, which the page's compliance figures use.
+        meta["testData"] = runs["testData"]
     if dates:
         meta["date"] = max(dates)[1]
     if run_url:

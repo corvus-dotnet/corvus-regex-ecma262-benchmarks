@@ -141,6 +141,8 @@ table.matrix { border-collapse: separate; border-spacing: 2px; font-family: var(
 .matrix td { min-width: 40px; height: 24px; text-align: center; border-radius: 3px; padding: 0 3px; cursor: default; }
 .matrix td.fail { background: repeating-linear-gradient(45deg, var(--fail-a) 0 3px, var(--fail-b) 3px 6px); color: var(--muted); }
 .matrix td.miss { color: var(--muted); }
+.matrix td.stop { color: var(--muted); font-size: 0.85em; white-space: nowrap; }
+.matrix td.wrongcount { color: var(--slower); font-weight: 600; font-size: 0.85em; white-space: nowrap; }
 .matrix tr.current th { color: var(--accent); }
 /* Phones: the workload column is capped (the full name is the row's title) so the cells sit beside it rather than
    off-screen, the rotated headers are shorter, and a section header's picker takes the line's width. */
@@ -336,6 +338,12 @@ function measure(impl, schema, metric = state.metric) {
   let out;
   if (r === undefined) out = { state: "missing" };
   else if (r === null) out = { state: "failed" };
+  // A figure stopped at the harness's limit: the engine did not produce a result within that many seconds.
+  else if (r.limit != null) out = { state: "stopped", limit: r.limit };
+  // A count of matches that differs from V8's: a wrong answer, with no figure.
+  else if (r.wrongCount) out = { state: "wrong", counted: r.wrongCount.counted, v8: r.wrongCount.v8 };
+  // Any other failure the harness reported, with what it said.
+  else if (r.error != null) out = { state: "failed", error: String(r.error) };
   else {
     // A part is either the runs of a measurement (an array) or its summary ({median, min, max}); parts are summed.
     const parts = METRICS[metric].parts;
@@ -373,16 +381,37 @@ function ratio(impl, schema) {
   const b = baseValue(schema);
   return m.state === "ok" && !Number.isNaN(b) ? div(m.median, b) : NaN;
 }
+// The words for a figure stopped at the harness's limit.
+function stoppedText(m) {
+  return `did not produce a result within ${m.limit} s`;
+}
+// The words for a count of matches that differs from V8's, and for a failure with what the harness said.
+function wrongText(m) {
+  return `wrong count: ${Number(m.counted).toLocaleString("en")} matches where V8 counts ${Number(m.v8).toLocaleString("en")}`;
+}
+function failedText(m) {
+  return m.error ? `${V.failed}: ${m.error}` : V.failed;
+}
+function resultText(m) {
+  return m.state === "failed" ? failedText(m) : m.state === "stopped" ? stoppedText(m) : m.state === "wrong" ? wrongText(m) : "not run";
+}
+// The workloads on which an engine's count of matches differs from V8's.
+function wrongCounts(id) {
+  const rows = DATA.results[id] || {};
+  return Object.values(rows).filter(r => r && r.wrongCount).length;
+}
 function geomean(xs) {
   return xs.length ? Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length) : NaN;
 }
 function summarise(impl) {
   const rs = [];
-  let failed = 0, missing = 0, best = 0;
+  let failed = 0, missing = 0, stopped = 0, wrong = 0, best = 0;
   for (const s of DATA.schemas) {
     const m = measure(impl, s.name);
     if (m.state === "failed") failed++;
     else if (m.state === "missing") missing++;
+    else if (m.state === "stopped") stopped++;
+    else if (m.state === "wrong") wrong++;
     const r = ratio(impl, s.name);
     if (Number.isFinite(r)) rs.push(r);
     if (m.state === "ok") {
@@ -394,7 +423,7 @@ function summarise(impl) {
       if (lowest && state.selected.has(impl)) best++;
     }
   }
-  return { impl, g: geomean(rs), n: rs.length, failed, missing, best };
+  return { impl, g: geomean(rs), n: rs.length, failed, missing, stopped, wrong, best };
 }
 function ranked() {
   return [...state.selected].map(summarise).sort((x, y) =>
@@ -422,31 +451,58 @@ function fmtRatio(r, versus = state.baseline !== "best") {
   if (Math.abs(r - 1) < 0.005) return "level";
   return r < 1 ? sig(1 / r) + "× " + better() : sig(r) + "× " + worse();
 }
-// An implementation's compliance (impl.compliance), when the data gives one: the counts on the ECMA-262 test data
-// ({right, wrong, refused, acceptedInvalid}, with a note that says what was judged when not all of it was), or a phrase
-// such as "not ECMA-262" or "the oracle of the test data".
-// Absent, nothing is shown. Returns { short, long, cls } or null.
+// An implementation's compliance (impl.compliance), when the data gives one: its counts on the ECMA-262 test data
+// ({right, wrong, refused, acceptedInvalid, limited}, the encodings it answers in, "utf16" and "utf8", and a note), or a
+// phrase such as "not ECMA-262". The figure is its right answers over every answer the data asks in those encodings
+// (DATA.meta.testData.answers, counted by the data's own rule), so an answer its runner did not ask counts against it as
+// a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's counts,
+// the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown.
+// Returns { short, long, cls } or null.
+const ANSWERS = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answers) || null;
+const ENCODING = { utf16: "UTF-16", utf8: "UTF-8" };
 function compliance(info) {
   const c = info && info.compliance;
   if (c == null || c === "") return null;
-  if (typeof c === "string") return /oracle/i.test(c) ? { short: "the oracle", long: c, cls: "comp-ok" } : { short: c, long: c, cls: "" };
-  const n = k => Number(c[k] || 0).toLocaleString("en");
-  // The share of the test data answered as the oracle answers: right over every answer judged. Rounded down, so one
-  // failure never reads as 100%; the counts are in the tooltip.
-  const bad = (c.wrong || 0) + (c.refused || 0) + (c.acceptedInvalid || 0) + (c.limited || 0);
-  const total = (c.right || 0) + bad;
-  const pct = total ? Math.floor(((c.right || 0) / total) * 10000) / 100 : 0;
-  const share = bad ? `${pct.toFixed(2)}%` : "100%";
-  const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]].filter(([k]) => c[k]).map(([k, w]) => `, ${n(k)} ${w}`).join("");
-  const long = `ECMA-262 test data: ${share} (${n("right")} right, ${n("wrong")} wrong${extra}, of ${total.toLocaleString("en")} answers)` +
+  if (typeof c === "string") return { short: c, long: c, cls: "" };
+  const n = v => Number(v || 0).toLocaleString("en");
+  const encodings = Array.isArray(c.encodings) ? c.encodings.filter(e => e in ENCODING) : [];
+  let full = ANSWERS && encodings.length ? encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0) : 0;
+  const right = Number(c.right || 0);
+  // Answers given (a refusal and an acceptance of an invalid pattern are verdicts, which open no answers).
+  const answered = right + Number(c.wrong || 0) + Number(c.limited || 0);
+  const bad = Number(c.wrong || 0) + Number(c.refused || 0) + Number(c.acceptedInvalid || 0) + Number(c.limited || 0);
+  // A runner that counts more answers than the data asks does not count by the data's rule: its figure is a share of
+  // what it asked, as for one that does not give its encodings.
+  const mismatch = full > 0 && answered > full;
+  if (mismatch) full = 0;
+  const notAnswered = full ? full - answered : 0;
+  const of = full || right + bad;
+  // Rounded down, so one answer short never reads as 100%.
+  const pct = of ? Math.floor((right / of) * 10000) / 100 : 0;
+  const complete = full > 0 && right === full;
+  const which = encodings.length === 1 ? ` (${ENCODING[encodings[0]]})` : "";
+  // Against the data's count, short of every answer is never 100%; a share of what a runner asked may be.
+  const share = complete || (!full && right === of) ? "100%" : `${(full ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
+  const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]]
+    .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
+  const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
+  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}`
+    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0))}, so it does not count by the data's rule`
+    : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
+  // A count of matches on a workload that differs from V8's is a wrong answer outside the test data: an engine with
+  // one is not shown as fully compliant, whatever its share of the data.
+  const counts = info.id ? wrongCounts(info.id) : 0;
+  const countsText = counts ? `; its count of matches differs from V8's on ${counts} ${counts === 1 ? V.schema : V.schemas}` : "";
+  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})${countsText}` +
     (c.note ? `. ${c.note}` : "");
-  return bad ? { short: `${share} ECMA-262`, long, cls: "comp-wrong" } : { short: "✓ 100% ECMA-262", long, cls: "comp-ok" };
+  if (complete && !counts) return { short: `✓ 100% ECMA-262${which}`, long, cls: "comp-ok" };
+  const mark = counts ? `, ≠ count on ${counts}` : "";
+  return { short: (full ? `${share} ECMA-262${which}` : `${share} of asked`) + mark, long, cls: "comp-wrong" };
 }
-// Fully compliant: the oracle, or counts with nothing wrong, refused or accepted that should not be.
+// Fully compliant: every answer the data asks in its encodings, asked and right.
 function fullyCompliant(info) {
-  const c = info && info.compliance;
-  if (typeof c === "string") return /oracle/i.test(c);
-  return !!c && typeof c === "object" && !(c.wrong || 0) && !(c.refused || 0) && !(c.acceptedInvalid || 0) && !(c.limited || 0);
+  const comp = compliance(info);
+  return !!comp && comp.cls === "comp-ok";
 }
 const HAS_COMPLIANCE = DATA.impls.some(i => i.compliance != null && i.compliance !== "");
 function implLabel(id) { const i = IMPL.get(id); return i ? i.name : id; }
@@ -654,7 +710,7 @@ function renderBoard() {
       svg.append(svgEl("text", { x: x0, y: cy + 4, class: "val", "pointer-events": "none" }, `no ${V.schema} completed`));
     }
     if (covW) {
-      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing}/${NS}`);
+      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing - r.stopped - r.wrong}/${NS}`);
       if (r.failed) cov.setAttribute("style", "fill: var(--slower)");
       svg.append(cov);
     }
@@ -686,7 +742,7 @@ function boardTip(id) {
       [`${V.Schemas} compared`, `${s.n} of ${NS}`],
       ["Fastest on", `${s.best} ${s.best === 1 ? V.schema : V.schemas}`],
       ["Failed", String(s.failed)],
-    ].concat(s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
+    ].concat(s.wrong ? [["Wrong count", String(s.wrong)]] : [], s.stopped ? [["No result within the limit", String(s.stopped)]] : [], s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
 }
 
 /* ---------- matrix ---------- */
@@ -715,6 +771,8 @@ function renderMatrix() {
       const m = measure(id, s.name), key = esc(id + "|" + s.name);
       if (m.state === "failed") { body += `<td class="fail" data-tip="${key}">✕</td>`; continue; }
       if (m.state === "missing") { body += `<td class="miss" data-tip="${key}">·</td>`; continue; }
+      if (m.state === "stopped") { body += `<td class="stop" data-tip="${key}">&gt; ${m.limit} s</td>`; continue; }
+      if (m.state === "wrong") { body += `<td class="wrongcount" data-tip="${key}">&ne; count</td>`; continue; }
       const r = ratio(id, s.name);
       const c = Number.isFinite(r) ? ratioColour(r) : { css: "transparent", L: 1 };
       const txt = state.cells === "value" ? fmtValue(m.median).replace(" ", " ") : fmtRatioShort(r);
@@ -734,15 +792,14 @@ function renderMatrix() {
     `<span class="ramp"><span>${leftLab}</span><i style="background:linear-gradient(90deg,${g.map(c => c.css).join(",")})"></i><span>${state.baseline === "best" ? "64×+" : span + "× " + worse()}</span></span>` +
     `<span>middle: ${midLab}</span>` +
     `<span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--fail-a) 0 3px,var(--fail-b) 3px 6px);border:1px solid var(--line)"></i>failed</span>` +
-    `<span>· not run</span><span>Click a ${V.schema} for its detail.</span>`;
+    `<span>· not run</span><span>&gt; 30 s: did not produce a result within 30 s</span><span>&ne; count: a count of matches that differs from V8's, a wrong answer</span><span>Click a ${V.schema} for its detail.</span>`;
 }
 function matrixTip(key) {
   // A workload's name can hold a | (a regular expression's alternation); an implementation's id never does.
   const at = key.indexOf("|"), id = key.slice(0, at), schema = key.slice(at + 1);
   const m = measure(id, schema), info = IMPL.get(id);
   let rows;
-  if (m.state === "failed") rows = [["Result", V.failed]];
-  else if (m.state === "missing") rows = [["Result", "not run"]];
+  if (m.state !== "ok") rows = [["Result", resultText(m)]];
   else rows = [
     [V.centre, fmtValue(m.median)],
     [V.spread, `${fmtValue(m.min)} – ${fmtValue(m.max)}`],
@@ -797,7 +854,7 @@ function renderSchema() {
       if (o.id === ref) lab.setAttribute("style", "fill: var(--accent); font-weight: 600");
       svg.append(lab);
       if (o.m.state !== "ok") {
-        svg.append(svgEl("text", { x: x0 + 4, y: cy + 4, class: "val", style: "fill: var(--muted)", "pointer-events": "none" }, o.m.state === "failed" ? V.failed : "not run"));
+        svg.append(svgEl("text", { x: x0 + 4, y: cy + 4, class: "val", style: "fill: var(--muted)", "pointer-events": "none" }, resultText(o.m)));
         return;
       }
       const xo = x(origin), xm = x(o.m.median);
@@ -823,7 +880,7 @@ function schemaTip(id) {
   const m = measure(id, state.schema);
   const rows = m.state === "ok"
     ? [[V.centre, fmtValue(m.median)], m.runs ? ["Runs", m.runs.map(v => fmtValue(v)).join(", ")] : [V.spread, `${fmtValue(m.min)} – ${fmtValue(m.max)}`], [state.baseline === "best" ? "Against the fastest" : "Against " + implLabel(state.baseline), fmtRatio(ratio(id, state.schema))]]
-    : [["Result", m.state === "failed" ? V.failed : "not run"]];
+    : [["Result", resultText(m)]];
   return `<div class="t-h">${esc(implLabel(id))}</div><div class="t-s">${esc(state.schema)} · ${esc(METRICS[state.metric].long)}</div>` + tipRows(rows);
 }
 
