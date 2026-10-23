@@ -36,7 +36,8 @@
         of its own limit and the time left, and one that would start with none left is recorded as not run. Counts a
         source made at another commit of the data (an engine's compliance with a dataCommit), or for another version
         of Unicode (one with a unicode), are judged against what was asked of them: the answers of each such commit
-        and version are counted into runs.json's testData.answersAt.
+        and version are counted into runs.json's testData.answersAt, those of every overlay the data has before the
+        first source runs and those of another commit as soon as the source that names it has run.
 
 Python 3 standard library only. GITHUB_TOKEN, when set, authenticates the GitHub API calls.
 """
@@ -205,31 +206,42 @@ def asked(path, pin, unicode):
     return out
 
 
-def answers_at(runs, pin, work, data_dir):
-    """The answers asked in each encoding and grammar for every (commit, Unicode version) a source's counts were made
-    at other than the night's, into runs["testData"]["answersAt"] keyed "<commit>|<version>", so that the page judges
-    such counts against what was asked of them."""
+def overlays(data_dir):
+    """The versions of Unicode the data has an overlay for (manifest.json's unicode_overlays), as merge.py names them."""
+    try:
+        with open(os.path.join(data_dir, "manifest.json"), encoding="utf-8") as f:
+            listed = json.load(f).get("unicode_overlays") or []
+        return {unicode_version(o.get("unicode")) for o in listed if isinstance(o, dict)} - {None}
+    except (OSError, ValueError, AttributeError):
+        return set()
+
+
+def answers_at(runs, pairs, pin, work, data_dir, tried):
+    """Adds the answers asked in each encoding and grammar at each (commit, Unicode version) of pairs to
+    runs["testData"]["answersAt"], keyed "<commit>|<version>", so that the page judges counts made at another commit
+    or for another version against what was asked of them. A pair already counted, or already tried and not
+    countable, is left as it is."""
     import answers
     unicode = runs["testData"].get("unicode")
-    found = {}
-    for record in runs["sources"].values():
-        for commit, version in asked(record.get("file"), pin, unicode) if record.get("file") else ():
-            key = f"{commit}|{version}"
-            if key in found:
-                continue
-            try:
-                directory = data_dir
-                if commit != pin["commit"]:
-                    target = os.path.join(work, "test-data-" + commit[:12])
-                    if not os.path.isdir(os.path.join(target, "data")):
-                        fetch_data(pin["repo"], commit, target)
-                    directory = os.path.join(target, "data")
-                found[key] = {k: v for k, v in answers.count(directory, None if version == unicode else version).items()
-                              if k != "files"}
-            except Exception as e:  # the page then shows those counts as a share of what their runner asked
-                log(f"test data at {commit[:10]}, Unicode {version}: its answers could not be counted ({e})")
-    if found:
-        runs["testData"]["answersAt"] = found
+    found = runs["testData"].setdefault("answersAt", {})
+    for commit, version in sorted(pairs, key=str):
+        key = f"{commit}|{version or ''}"
+        if key in found or key in tried:
+            continue
+        tried.add(key)
+        try:
+            directory = data_dir
+            if commit != pin["commit"]:
+                target = os.path.join(work, "test-data-" + commit[:12])
+                if not os.path.isdir(os.path.join(target, "data")):
+                    fetch_data(pin["repo"], commit, target)
+                directory = os.path.join(target, "data")
+            found[key] = {k: v for k, v in answers.count(directory, None if version == unicode else version).items()
+                          if k != "files"}
+        except Exception as e:  # the page then shows those counts as a share of what their runner asked
+            log(f"test data at {commit[:10]}, Unicode {version}: its answers could not be counted ({e})")
+    if not found:
+        del runs["testData"]["answersAt"]
 
 
 def counts(args):
@@ -264,6 +276,8 @@ def run(args):
     with open(workloads_file, encoding="utf-8") as f:
         v8_counted = any("v8Count" in w for w in json.load(f))
     data_dir = os.path.abspath(args.data) if args.data else None
+    work = os.path.abspath(args.work)
+    tried = set()
     runs = {"machine": describe_machine(), "started": now(), "sources": {}}
     pin = test_data(args.sources)
     if data_dir and pin:
@@ -278,6 +292,10 @@ def run(args):
             pass
         runs["testData"] = dict(pin, unicode=unicode,
                                 answers={k: v for k, v in answers.count(data_dir).items() if k != "files"})
+        # Before any source runs, the answers of every other version of Unicode the data has an overlay for, so that a
+        # night cut short still judges an engine of another version by its version's answers; a commit a source names
+        # is added when that source has run.
+        answers_at(runs, {(pin["commit"], v) for v in overlays(data_dir) if v != unicode}, pin, work, data_dir, tried)
     start = datetime.datetime.now(datetime.timezone.utc)
 
     def save():
@@ -349,8 +367,8 @@ def run(args):
         else:
             log(f"{sid}: done")
             record["file"] = data
-    if runs.get("testData"):
-        answers_at(runs, pin, os.path.abspath(args.work), data_dir)
+            if runs.get("testData"):
+                answers_at(runs, asked(data, pin, runs["testData"].get("unicode")), pin, work, data_dir, tried)
     runs["finished"] = now()
     save()
 
