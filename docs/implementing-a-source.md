@@ -265,7 +265,8 @@ The image writes one data file, `/out/industry.json`, in the page's shape, which
 - `meta`: the title, the repository, the commit, the date (ISO 8601 with its zone, such as
   `2026-10-24T05:00:00Z`), the workflow run's URL, the runner and the host as the
   harness recorded them (never typed in by hand), the facts, and `method`, an HTML description of how the figures were
-  made. The method stays in the data for anyone reading it; the page itself does not show it. The page's text is this
+  made. The method stays in the data for anyone reading it; the page itself does not show it, nor the file's
+  `vocab` (the page's words for its axes and the spread of a figure are this repository's). The page's text is this
   repository's, so that it reads the same for every engine: the general text in `tools/merge.py` and each engine's
   `how` in `site/engines.json` (see [Registering](#registering)).
 - `impls`: one entry per engine, with its `id`, its `name`, its `group` (the language; V8's group is `V8`), its

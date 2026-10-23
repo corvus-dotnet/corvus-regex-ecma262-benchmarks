@@ -54,11 +54,14 @@ LEDE = (
 )
 NO_ENGINE_RAN = "No engine ran on this runner tonight; the previous nights are in every day's data."
 LEDE_HERE = "Every engine ran on this runner tonight, in one job, so a figure compares across languages as well as within one."
-DEFAULT_VOCAB = {
+# The page's words for its axes, its figures and their spread: this repository's, whatever a source's file says, so
+# that the legend reads the same every night. A figure is the median of its rounds, its spread the fastest and the
+# slowest round (the protocol every harness keeps to).
+VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
     "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
-    "failed": "failed", "centre": "Mean", "spread": "StdDev",
-    "barLegend": "mean of the run", "whiskerLegend": "whisker: one standard deviation",
+    "failed": "failed", "centre": "Median", "spread": "fastest to slowest round",
+    "barLegend": "median of the rounds", "whiskerLegend": "whisker: the fastest and the slowest round",
 }
 
 
@@ -223,7 +226,7 @@ def take(source, data, ran, have_v8):
     sid, language = source["id"], source["language"]
     meta = data["meta"]
     repo = source.get("repo") or meta.get("repo") or ""
-    part = {"vocab": data.get("vocab"), "defaultMeasure": meta.get("defaultMeasure"),
+    part = {"defaultMeasure": meta.get("defaultMeasure"),
             "measures": list(data["measures"].items()), "schemas": [dict(s) for s in data["schemas"]],
             "impls": [], "results": {}, "v8": False, "v8Dropped": False, "links": []}
     for impl in data["impls"]:
@@ -261,7 +264,7 @@ def take(source, data, ran, have_v8):
 def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
-    vocab, default_measure = None, None
+    default_measure = None
     facts, links, notes = [], [], []
     v8_from, v8_dropped = None, []
     dates = []
@@ -305,7 +308,6 @@ def merge(sources, run_url="", runs=None):
             continue
         here.append(language)
         used += 1
-        vocab = vocab or part["vocab"]
         default_measure = default_measure or part["defaultMeasure"]
         for key, measure in part["measures"]:
             measures.setdefault(key, measure)
@@ -361,7 +363,7 @@ def merge(sources, run_url="", runs=None):
         meta["defaultMeasure"] = default_measure
     return used, {
         "meta": meta,
-        "vocab": vocab or DEFAULT_VOCAB,
+        "vocab": dict(VOCAB),
         "measures": measures,
         "impls": impls,
         "schemas": schemas,
@@ -371,14 +373,16 @@ def merge(sources, run_url="", runs=None):
 
 def restate(data):
     """A published data file with the page's text made again by this code, its figures untouched: the title, the
-    lede, the general method and every row's platform label. A push of this repository builds the page again from the
-    published data without running an image, and this is how a change to the page's text reaches it then. The parts
-    of the method that belong to the run (which run V8 came from, the sources skipped) are kept."""
+    lede, the general method, the page's words (VOCAB) and every row's platform label. A push of this repository
+    builds the page again from the published data without running an image, and this is how a change to the page's
+    text reaches it then. The parts of the method that belong to the run (which run V8 came from, the sources
+    skipped) are kept."""
     meta = data.setdefault("meta", {})
     old = meta.get("method", "")
     lede, method = page_text(NO_ENGINE_RAN not in meta.get("lede", ""), meta.get("testData"))
     kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>).*?</p>", old, flags=re.S)
     meta["title"], meta["lede"], meta["method"] = TITLE, lede, "".join(method + kept)
+    data["vocab"] = dict(VOCAB)
     label(data.get("impls", []))
     return data
 
