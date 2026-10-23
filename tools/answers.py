@@ -7,8 +7,9 @@ runner judges an engine" in its README): what a compliance figure of 100% is a s
   no answer here.
 - Each test is one answer over UTF-16 and, when its text holds no lone surrogate, one more over UTF-8.
 - In captures.jsonl a test is seven answers over UTF-16 (exec, the global search, sticky, replace, replaceAll, split,
-  split3) and five over UTF-8 when its text holds no lone surrogate (all but the splits); sticky is not asked of an
-  empty text.
+  split3) and five over UTF-8 when its text holds no lone surrogate (all but the splits). Sticky, which starts at
+  position 1, is not asked of an empty text, nor over UTF-8 where position 1 falls between the halves of a
+  supplementary character: UTF-8 has no such position, as it has no form of a lone surrogate.
 
 An engine's figure is its right answers over the answers of the encodings it answers in, so an answer its runner did
 not ask counts against it as a wrong one does.
@@ -53,7 +54,10 @@ def count(data_dir):
                         whole = not lone(text)
                         if captures:
                             a16 += 7 if text else 6
-                            a8 += (5 if text else 4) if whole else 0
+                            if whole:
+                                # Python reads a pair's escapes as one code point beyond U+FFFF.
+                                mid = ord(text[0]) > 0xFFFF if text else False
+                                a8 += 5 if text and not mid else 4
                         else:
                             a16 += 1
                             a8 += 1 if whole else 0
