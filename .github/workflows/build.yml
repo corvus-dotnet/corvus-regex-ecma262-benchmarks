@@ -3,9 +3,9 @@
 # The nightly schedule and a run by hand run every engine; a push to main (a change to the page or the tools) only
 # builds the page again from the data already published, in a minute, and runs no image.
 #
-# One job: write the Industry workloads once (the .NET repository's workloads.py, at its latest release) and
+# One job: write the Industry workloads once (the .NET repository's workloads.py, at its newest release) and
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
-# its latest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
+# its newest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
 # here beyond Python and Docker. Every image is given the ECMA-262 test data at the commit sources.json pins (testData),
 # mounted at /data, so every engine of a night is judged on the same data. The images run within 300 minutes in all
@@ -45,7 +45,7 @@ jobs:
         # The Node of the harness images, whose V8 counts each workload once for every image (the counts step).
         node-version: '24.22.0'
     - name: Write the workloads
-      # The list comes from one place, the .NET repository's workloads.py, at its latest release. Without it no image
+      # The list comes from one place, the .NET repository's workloads.py, at its newest release. Without it no image
       # can run, and every source is shown as not run.
       id: workloads
       if: github.event_name != 'push'

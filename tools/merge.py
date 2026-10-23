@@ -215,7 +215,7 @@ def merge(sources, run_url="", runs=None):
     lede = LEDE + (LEDE_HERE if here else "No engine ran on this runner tonight; the previous nights are in every day's data.")
     where = (
         f"<p><b>Where the figures come from.</b> <a href=\"https://github.com/{REPO}\">This repository</a>'s nightly "
-        "workflow runs each source's published container image, at its latest release, one after another in one job "
+        "workflow runs each source's published container image, at its newest release, one after another in one job "
         "on one runner; each image runs its engines (the source's own and the platform's others) and V8 over the "
         f"workloads, then <a href=\"{site_links(runs.get('testData') if runs else None)[1]['url']}\">the ECMA-262 test data</a> for "
         "compliance. So the figures of every engine run here were measured on one machine in one night's run. "

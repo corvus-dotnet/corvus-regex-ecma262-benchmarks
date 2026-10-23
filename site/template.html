@@ -456,9 +456,14 @@ function fmtRatio(r, versus = state.baseline !== "best") {
 // phrase such as "not ECMA-262". The figure is its right answers over every answer the data asks in those encodings
 // (DATA.meta.testData.answers, counted by the data's own rule), so an answer its runner did not ask counts against it as
 // a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's counts,
-// the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown.
+// the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown. Counts made at
+// another commit of the data (dataCommit: checked in beside a harness, for an engine too slow to judge every night) are
+// a share of what that commit asks (DATA.meta.testData.answersAt), say which commit, and are never shown as fully
+// compliant, since tonight's data was not asked of that engine.
 // Returns { short, long, cls } or null.
 const ANSWERS = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answers) || null;
+const DATA_COMMIT = (DATA.meta && DATA.meta.testData && DATA.meta.testData.commit) || "";
+const ANSWERS_AT = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answersAt) || {};
 const ENCODING = { utf16: "UTF-16", utf8: "UTF-8" };
 function compliance(info) {
   const c = info && info.compliance;
@@ -466,7 +471,9 @@ function compliance(info) {
   if (typeof c === "string") return { short: c, long: c, cls: "" };
   const n = v => Number(v || 0).toLocaleString("en");
   const encodings = Array.isArray(c.encodings) ? c.encodings.filter(e => e in ENCODING) : [];
-  let full = ANSWERS && encodings.length ? encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0) : 0;
+  const at = c.dataCommit && c.dataCommit !== DATA_COMMIT ? String(c.dataCommit) : "";
+  const asks = at ? ANSWERS_AT[at] || null : ANSWERS;
+  let full = asks && encodings.length ? encodings.reduce((t, e) => t + Number(asks[e] || 0), 0) : 0;
   const right = Number(c.right || 0);
   // Answers given (a refusal and an acceptance of an invalid pattern are verdicts, which open no answers).
   const answered = right + Number(c.wrong || 0) + Number(c.limited || 0);
@@ -487,16 +494,18 @@ function compliance(info) {
     .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
   const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
   const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}`
-    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0))}, so it does not count by the data's rule`
+    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(encodings.reduce((t, e) => t + Number(asks[e] || 0), 0))}, so it does not count by the data's rule`
+    : at && !asks ? ` of the answers its runner asked (what the data asks at the commit it was counted at could not be counted)`
     : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
   // A count of matches on a workload that differs from V8's is a wrong answer outside the test data: an engine with
   // one is not shown as fully compliant, whatever its share of the data.
   const counts = info.id ? wrongCounts(info.id) : 0;
   const countsText = counts ? `; its count of matches differs from V8's on ${counts} ${counts === 1 ? V.schema : V.schemas}` : "";
-  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})${countsText}` +
+  const atText = at ? `; counted at the test data's ${at.slice(0, 7)}${DATA_COMMIT ? `, not tonight's ${DATA_COMMIT.slice(0, 7)}` : ""}` : "";
+  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})${atText}${countsText}` +
     (c.note ? `. ${c.note}` : "");
-  if (complete && !counts) return { short: `✓ 100% ECMA-262${which}`, long, cls: "comp-ok" };
-  const mark = counts ? `, ≠ count on ${counts}` : "";
+  if (complete && !counts && !at) return { short: `✓ 100% ECMA-262${which}`, long, cls: "comp-ok" };
+  const mark = (at ? ` (data ${at.slice(0, 7)})` : "") + (counts ? `, ≠ count on ${counts}` : "");
   return { short: (full ? `${share} ECMA-262${which}` : `${share} of asked`) + mark, long, cls: "comp-wrong" };
 }
 // Fully compliant: every answer the data asks in its encodings, asked and right.

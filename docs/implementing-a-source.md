@@ -43,9 +43,11 @@ answers for about 115,000 patterns over about 5.75 million texts, as JSON Lines 
 authority. Read it first, above all the section "How a runner judges an engine". This guide summarises that section
 and does not replace it.
 
-A runner's own CI checks out the data at a pinned commit, so its tests do not move when the data does. The image
-clones the data's `main` each time it runs, so that every engine on a given night is judged against the same, current
-data.
+Two pins of the data matter. A runner's own CI checks out the data at a pinned commit, so its tests do not move when
+the data does. The nightly build pins the data too, in this repository's `sources.json` (`testData`), and gives every
+image that commit at `/data`, so that every engine on a given night is judged against the same data. The nightly pin
+moves only once every source's runner reads the data at the new commit. Run by hand without `/data`, the image clones
+the data's `main`.
 
 The data has three kinds of file.
 
@@ -153,9 +155,19 @@ with no match limit of its own runs in child processes with a time limit on each
 progress within that limit counts as unanswered, together with every answer it would have given.
 
 Such a run can take a long time (regress takes over an hour), so the image does not repeat it every night. The source
-works out those counts once, at the data's pinned commit, checks them in beside the harness as
-`compliance-<engine>.txt`, and works them out again when the data changes. An engine that does not claim ECMA-262
-compliance has the compliance `"not ECMA-262"`.
+works out those counts once and checks them in beside the harness as `compliance-<engine>.txt`. Such counts are tied
+to the commit of the data they were made at, and are kept honest by three rules.
+
+- **The file says its commit.** Its first line is `data <full commit>`, the commit of the test data the counts were
+  made at; the runner's output follows.
+- **The page judges them against that commit.** The results script copies the commit into the engine's `compliance`
+  object as `dataCommit`. When it differs from the nightly pin, the nightly build counts what that commit asks with
+  `tools/answers.py`, and the page shows the engine's share of those answers with "counted at the test data's
+  `<commit>`". Such an engine is never shown as fully compliant, since tonight's data was not asked of it.
+- **CI keeps them at its own pin.** A CI step fails when a `compliance-<engine>.txt` was made at another commit than
+  the one CI checks the data out at, so moving CI's pin means working the counts out again in the same change.
+
+An engine that does not claim ECMA-262 compliance has the compliance `"not ECMA-262"`.
 
 ## The benchmark
 
@@ -287,10 +299,22 @@ The workflow (`.github/workflows/harness-image.yml`) runs on pull requests, on `
 1. Build the image.
 2. Smoke-run it over two workloads with `JOB=short`, and check the data file's engines, workloads and compliance.
 3. Run the count gate: fetch the five texts and run the image with `COUNT_GATE=1` over every workload.
-4. Publish `:latest` from `main`, and the version's tag from a release.
+4. Publish `:latest` from `main`, and the release's tag from a release.
+
+### Releases
 
 A change to a harness reaches the page only once it is released, because the nightly build takes each source's image
-at the tag of its repository's latest GitHub release.
+at the tag of its repository's newest GitHub release. There are two kinds of release.
+
+- **A package release** (`v<version>`, or the version alone where the package manager reads tags that way) publishes
+  the engine or binding to its package registry and the harness image. Every package publish workflow checks that the
+  tag names the package's version, and does nothing for a version the registry already has (or, for archives
+  attached to a release, a release that already has them), so that re-running a release never fails or replaces what
+  was published.
+- **A harness release** (`harness-<package version>.<n>`, for example `harness-0.2.1.1`) publishes the harness image
+  alone, for a change that touches only the harness side: the harness, its Dockerfile, a runner, or another engine's
+  checked-in counts. It is made with `gh release create harness-0.2.1.1 --latest=false`, so that the repository's
+  Latest stays the package's. Every package publish workflow skips a tag that starts `harness-`.
 
 ## Registering
 
@@ -304,7 +328,8 @@ at the tag of its repository's latest GitHub release.
    - `language` is the group the engines appear under.
    - `repo` is the GitHub repository whose releases tag the image.
    - `image` is the image without a tag.
-   - `ref` is `latest-release`: the tag of the repository's latest release, or `latest` if it has none.
+   - `ref` is `latest-release`: the tag of the repository's newest release of either kind, or `latest` if it has
+     none.
    - `timeoutMinutes` (optional, default 150) bounds the source's run.
    - `"v8": true` marks the one source whose V8 figures the page shows.
 
@@ -320,4 +345,5 @@ The engines appear at the next nightly build, or at a run started by hand (`work
 - a few seeds of `fuzz.js` give no wrong answers;
 - the harness keeps to the protocol, including the 30 s limit, the count check and validation outside the timed
   region;
-- the image's smoke run and count gate pass, and failures in the data file say what kind they are.
+- the image's smoke run and count gate pass, and failures in the data file say what kind they are;
+- each checked-in `compliance-<engine>.txt` starts with the data commit it was made at, the commit CI pins.

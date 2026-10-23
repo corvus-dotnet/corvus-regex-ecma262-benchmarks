@@ -20,8 +20,9 @@
         has none, and is not checked.
 
     python3 tools/sources.py run --workloads workloads.json --texts DIR [--data DIR/data] [--budget-minutes N] --out out-data
-        For each source: pulls `<image>:<tag>`, the tag of the repository's latest GitHub release (or `latest` when
-        there is no release or that tag cannot be pulled), and runs it as the contract says,
+        For each source: pulls `<image>:<tag>`, the tag of the repository's newest GitHub release, a package release or
+        a harness release (or `latest` when there is no release or that tag cannot be pulled), and runs it as the
+        contract says,
 
             docker run --rm [-e V8=0] -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
 
@@ -32,7 +33,9 @@
         that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
         tonight. With --budget-minutes, no source runs past that many minutes from the start: each is given the less
-        of its own limit and the time left, and one that would start with none left is recorded as not run.
+        of its own limit and the time left, and one that would start with none left is recorded as not run. Counts a
+        source worked out at another commit of the data (an engine's compliance with a dataCommit) are judged against
+        what that commit asks: the answers each such commit asks are counted into runs.json's testData.answersAt.
 
 Python 3 standard library only. GITHUB_TOKEN, when set, authenticates the GitHub API calls.
 """
@@ -77,11 +80,18 @@ def api(path):
 
 
 def latest_release(repo):
+    """The tag of the repository's newest published release of either kind: a package release, or a harness release
+    (a tag starting harness-), which publishes the harness image alone when only the harness changed. GitHub's "latest"
+    is not used: a harness release is marked not latest, so that the repository's Latest stays its package's."""
     try:
-        return api(f"repos/{repo}/releases/latest")["tag_name"]
-    except Exception as e:  # no release yet, or the API refused: the image's latest tag is used
-        log(f"{repo}: no latest release could be read ({e})")
+        releases = [r for r in api(f"repos/{repo}/releases?per_page=30") if not r.get("draft") and not r.get("prerelease")]
+    except Exception as e:  # the API refused: the image's latest tag is used
+        log(f"{repo}: its releases could not be read ({e})")
         return None
+    if not releases:  # no release yet: the image's latest tag is used
+        log(f"{repo}: no release yet")
+        return None
+    return max(releases, key=lambda r: r.get("published_at") or "")["tag_name"]
 
 
 def workloads(args):
@@ -153,17 +163,53 @@ def test_data(path):
         return json.load(f).get("testData")
 
 
+def fetch_data(repo, commit, target):
+    """The test data of repo at commit, fetched into target (whose data/ directory holds the files)."""
+    os.makedirs(target, exist_ok=True)
+    for step in (["init", "--quiet"], ["remote", "add", "origin", f"https://github.com/{repo}"],
+                 ["fetch", "--quiet", "--depth", "1", "origin", commit], ["checkout", "--quiet", "FETCH_HEAD"]):
+        subprocess.run(["git", "-C", target, *step], check=True)
+    log(f"test data: {repo} at {commit[:10]} -> {target}")
+
+
 def data(args):
     pin = test_data(args.sources)
     if not pin:
         raise SystemExit("sources.json pins no test data (testData)")
-    target = os.path.abspath(args.data)
-    os.makedirs(target, exist_ok=True)
-    url = f"https://github.com/{pin['repo']}"
-    for step in (["init", "--quiet"], ["remote", "add", "origin", url], ["fetch", "--quiet", "--depth", "1", "origin", pin["commit"]],
-                 ["checkout", "--quiet", "FETCH_HEAD"]):
-        subprocess.run(["git", "-C", target, *step], check=True)
-    log(f"test data: {pin['repo']} at {pin['commit'][:10]} -> {target}")
+    fetch_data(pin["repo"], pin["commit"], os.path.abspath(args.data))
+
+
+def data_commits(path):
+    """The commits of the test data that a source's data file says some of its counts were worked out at: the
+    dataCommit of each engine's compliance (counts checked in beside a harness, for an engine too slow to judge every
+    night)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            impls = json.load(f).get("impls", [])
+    except (OSError, ValueError, AttributeError):
+        return set()
+    return {i["compliance"]["dataCommit"] for i in impls
+            if isinstance(i, dict) and isinstance(i.get("compliance"), dict) and i["compliance"].get("dataCommit")}
+
+
+def answers_at(runs, pin, work):
+    """The answers asked in each encoding at every other commit of the test data that a source's counts were worked
+    out at, into runs["testData"]["answersAt"], so that the page judges such counts against what their commit asks."""
+    import answers
+    found = {}
+    for record in runs["sources"].values():
+        for commit in data_commits(record.get("file")) if record.get("file") else ():
+            if commit == pin["commit"] or commit in found:
+                continue
+            try:
+                target = os.path.join(work, "test-data-" + commit[:12])
+                if not os.path.isdir(os.path.join(target, "data")):
+                    fetch_data(pin["repo"], commit, target)
+                found[commit] = {k: v for k, v in answers.count(os.path.join(target, "data")).items() if k != "files"}
+            except Exception as e:  # the page then shows those counts as a share of what their runner asked
+                log(f"test data at {commit[:10]}: its answers could not be counted ({e})")
+    if found:
+        runs["testData"]["answersAt"] = found
 
 
 def counts(args):
@@ -275,6 +321,8 @@ def run(args):
         else:
             log(f"{sid}: done")
             record["file"] = data
+    if runs.get("testData"):
+        answers_at(runs, pin, os.path.abspath(args.work))
     runs["finished"] = now()
     save()
 
