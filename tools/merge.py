@@ -19,6 +19,8 @@ Python 3 standard library only.
 
 Usage:
     python3 tools/merge.py [--sources sources.json] [--runs out-data/runs.json] --out data/latest.json [--run-url URL]
+    python3 tools/merge.py --restate published/latest.json --out data/latest.json
+        (a published file with the page's text made again by this code, for a build with no run: see restate)
 
 A source's data file may also be named directly in runs.json, for trying a source before its image is published.
 """
@@ -28,10 +30,11 @@ import datetime
 import html
 import json
 import os
+import re
 import sys
 import urllib.request
 
-TITLE = "ECMA-262 regex engines: compliance and the Industry benchmarks"
+TITLE = "Regex engines on every platform: ECMA-262 compliance and performance"
 REPO = "corvus-dotnet/corvus-regex-ecma262-benchmarks"
 TEST_DATA_REPO = "corvus-dotnet/ecma262-regex-test-data"
 
@@ -44,9 +47,11 @@ def site_links(test_data=None):
     return [{"label": "How the benchmarks run", "url": f"https://github.com/{REPO}"},
             {"label": "ECMA-262 test data", "url": data_url}]
 LEDE = (
-    "ECMA-262 regex engines, each platform's own regex engines and V8, judged on the ECMA-262 test data and timed "
-    "over the Industry workloads of dotnet/performance. "
+    "How closely the regular expression engines of each platform follow ECMA-262, and how fast they are. Engines that "
+    "implement ECMA-262 and each platform's other regex engines appear side by side, with V8 as the common reference, "
+    "judged on the ECMA-262 test data and timed over the Industry workloads of dotnet/performance. "
 )
+NO_ENGINE_RAN = "No engine ran on this runner tonight; the previous nights are in every day's data."
 LEDE_HERE = "Every engine ran on this runner tonight, in one job, so a figure compares across languages as well as within one."
 DEFAULT_VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
@@ -121,11 +126,82 @@ def parse_date(value):
         return None
 
 
+def label(impls):
+    """Every row names its platform, so that a row read alone says what it is: "re (Python)", "Corvus interpreter
+    (.NET)". A name that already names it (".NET interpreter", "Swift Regex", "regex (Rust)") is kept, and so is V8's,
+    which is one engine on every platform; a name that ends in parentheses gains the platform inside them."""
+    for impl in impls:
+        group, name = impl.get("group", ""), impl.get("name", "")
+        if not group or group == "V8" or re.search(r"(?<![\w.+#])" + re.escape(group) + r"(?![\w+#])", name, re.I):
+            continue
+        impl["name"] = f"{name[:-1]}, {group})" if name.endswith(")") else f"{name} ({group})"
+
+
+def page_text(here, test_data):
+    """The page's lede and the general part of its method (the "How to read this" section), the same for every engine:
+    what the page shows, what a figure is, how it is measured, where it comes from, and how compliance and the
+    marks in the cells read."""
+    lede = LEDE + (LEDE_HERE if here else NO_ENGINE_RAN)
+    what = (
+        "<p><b>What this page shows.</b> The regular expression engines of each platform, side by side: engines that "
+        "implement ECMA-262 (the regular expressions of JavaScript), the platform's other regex engines, which "
+        "implement other dialects, and V8, the engine of Node.js and Chrome, as the common reference. Each engine is "
+        "judged on the ECMA-262 test data, whose answers are V8's, and timed over the Industry workloads of "
+        "dotnet/performance. An engine that does not implement ECMA-262 is there for its speed alone. How each engine "
+        "is called is in the list of engines at the foot of the page.</p>"
+    )
+    figure = (
+        "<p><b>A figure</b> is the time to count every match a global search finds over the whole text of a "
+        "workload, moving on one character after an empty match as JavaScript's matchAll does, in nanoseconds per "
+        "count. An ECMA-262 engine is given the workload's flags with u, and V8 the flags with g and u. An engine of "
+        "another dialect is given the pattern as it is with the workload's i, m and s flags, and has no figure where "
+        "the pattern does not compile.</p>"
+    )
+    measured = (
+        "<p><b>How it is measured.</b> Every harness keeps to one protocol. The workloads run one after another, "
+        "each in 3 rounds of every engine in turn, the order of the engines turned each round. Each turn is a process "
+        "of its own, which warms the engine, times 7 passes of as many counts as fit in 0.7 s, and reports the median "
+        "pass. An engine's figure for a workload is the median of its rounds, and its spread is the fastest and the "
+        "slowest round; a figure whose spread is over 5% is listed in the facts. Work a program would do once per "
+        "text, such as checking that bytes are UTF-8, is done before the timing starts.</p>"
+    )
+    where = (
+        f"<p><b>Where the figures come from.</b> <a href=\"https://github.com/{REPO}\">This repository</a>'s nightly "
+        "workflow runs each source's published container image, at its newest release, one after another in one job "
+        "on one runner. Each image runs its engines and V8 over the workloads, then "
+        f"<a href=\"{site_links(test_data)[1]['url']}\">the ECMA-262 test data</a> for compliance. So the figures of "
+        "every engine run here were measured on one machine in one night's run. Anyone can add an engine: see "
+        f"<a href=\"https://github.com/{REPO}/blob/main/docs/implementing-a-source.md\">implementing a source</a>.</p>"
+        if here else
+        "<p><b>Where the figures come from.</b> No engine's image ran tonight.</p>"
+    )
+    compliance = (
+        "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data: its right answers over "
+        "every answer the data asks in the encodings the engine answers in, counted by the data's own rule "
+        "(tools/answers.py), so that an answer its runner did not ask counts against it as a wrong one does. An engine "
+        "with one encoding is a share of that encoding's answers, and says which. The counts are in its tooltip. Counts "
+        "worked out at an earlier commit of the data (for an engine too slow to judge every night) are a share of what "
+        "that commit asks, and say which commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
+    )
+    stopped = (
+        "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
+        "figure that has not finished in 30 s and does not run it again in the workload's later rounds, so such a "
+        "cell has no figure, and the engine is not ranked on that workload.</p>"
+    )
+    count = (
+        "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
+        "a wrong answer. An ECMA-262 engine with one has no figure there, and is not shown as fully compliant beside "
+        "its name whatever its share of the test data. An engine of another dialect keeps its figure, and the "
+        "workload shows both counts. A cell marked failed says, in its tooltip, what the harness reported.</p>"
+    )
+    return lede, [what, figure, measured, where, compliance, stopped, count]
+
+
 def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
     vocab, default_measure = None, None
-    facts, links, methods, notes = [], [], [], []
+    facts, links, notes = [], [], []
     v8_from, v8_dropped = None, []
     dates = []
     used = 0
@@ -199,54 +275,18 @@ def merge(sources, run_url="", runs=None):
             links.append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
         if meta.get("runUrl"):
             links.append({"label": f"{language} run", "url": meta["runUrl"]})
-        if meta.get("method"):
-            commit_link = f' at <a href="https://github.com/{html.escape(repo)}/commit/{html.escape(commit)}">{html.escape(commit[:10])}</a>' if repo and commit else ""
-            origin = f"From the image of {html.escape(repo or sid)} ({html.escape(str(ran.get('image', '')))}:{html.escape(str(ran.get('tag', '')))}), run here"
-            methods.append(f"<h3>{html.escape(language)}</h3><p><i>{origin}{commit_link}.</i></p>{meta['method']}")
 
-    # Two implementations of one name (an engine of the same name in two languages) are told apart by the language.
-    counts = {}
-    for impl in impls:
-        counts[impl["name"]] = counts.get(impl["name"], 0) + 1
-    for impl in impls:
-        if counts[impl["name"]] > 1 and impl["group"] != "V8":
-            impl["name"] = f"{impl['name']} ({impl['group']})"
+    label(impls)
 
-    lede = LEDE + (LEDE_HERE if here else "No engine ran on this runner tonight; the previous nights are in every day's data.")
-    where = (
-        f"<p><b>Where the figures come from.</b> <a href=\"https://github.com/{REPO}\">This repository</a>'s nightly "
-        "workflow runs each source's published container image, at its newest release, one after another in one job "
-        "on one runner; each image runs its engines (the source's own and the platform's others) and V8 over the "
-        f"workloads, then <a href=\"{site_links(runs.get('testData') if runs else None)[1]['url']}\">the ECMA-262 test data</a> for "
-        "compliance. So the figures of every engine run here were measured on one machine in one night's run. "
-        f"Anyone can add an engine: see <a href=\"https://github.com/{REPO}/blob/main/docs/implementing-a-source.md\">"
-        "implementing a source</a>.</p>"
-        if here else
-        "<p><b>Where the figures come from.</b> No engine's image ran tonight.</p>"
-    )
-    method = [
-        where,
-        "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data, whose answers are "
-        "V8's: its right answers over every answer the data asks in the encodings the engine answers in, counted by "
-        "the data's own rule (tools/answers.py), so that an answer its runner did not ask counts against it as a "
-        "wrong one does. An engine with one encoding is a share of that encoding's answers, and says which. The counts "
-        "are in its tooltip. \"Not ECMA-262\" marks an engine that implements another dialect, whose figures are a "
-        "reference for speed and not for answers.</p>",
-        "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
-        "figure that has not finished in 30 s and does not run it again in the workload's later rounds, so such a "
-        "cell has no figure, and the engine is not ranked on that workload.</p>",
-        "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
-        "a wrong answer. An ECMA-262 engine with one has no figure there, and is not shown as fully compliant beside "
-        "its name whatever its share of the test data. A cell marked failed says, in its tooltip, what the harness "
-        "reported.</p>",
-    ]
+    lede, method = page_text(here, runs.get("testData") if runs else None)
     if v8_from:
         others = sorted(set(v8_dropped))
         dropped = f"; the V8 figures of the {', '.join(others)} run{'s' if len(others) > 1 else ''} are not shown" if others else ""
         method.append(f"<p><b>V8</b> appears once, from the {html.escape(v8_from)} run{html.escape(dropped)}.</p>")
     if notes:
         method.append("<p><b>Sources skipped this time:</b> " + "; ".join(notes) + ".</p>")
-    method.extend(methods)
+    # Each image's own method text stays in its data file; the page's text is this repository's (page_text and
+    # site/engines.json), so that it reads the same for every engine.
 
     links = site_links(runs.get("testData") if runs else None) + links
     links.append({"label": "Every day's data", "url": "data/runs/"})
@@ -281,13 +321,38 @@ def merge(sources, run_url="", runs=None):
     }
 
 
+def restate(data):
+    """A published data file with the page's text made again by this code, its figures untouched: the title, the
+    lede, the general method and every row's platform label. A push of this repository builds the page again from the
+    published data without running an image, and this is how a change to the page's text reaches it then. The parts
+    of the method that belong to the run (which run V8 came from, the sources skipped) are kept."""
+    meta = data.setdefault("meta", {})
+    old = meta.get("method", "")
+    lede, method = page_text(NO_ENGINE_RAN not in meta.get("lede", ""), meta.get("testData"))
+    kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>).*?</p>", old, flags=re.S)
+    meta["title"], meta["lede"], meta["method"] = TITLE, lede, "".join(method + kept)
+    label(data.get("impls", []))
+    return data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--sources", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sources.json"))
     parser.add_argument("--out", required=True)
     parser.add_argument("--runs", help="The runs.json of tools/sources.py run: the data each image wrote here.")
     parser.add_argument("--run-url", default="", help="The URL of the workflow run that merges, for the page header.")
+    parser.add_argument("--restate", help="A published data file: write it with the page's text made again (restate).")
     args = parser.parse_args()
+
+    if args.restate:
+        with open(args.restate, encoding="utf-8") as f:
+            data = restate(json.load(f))
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, ensure_ascii=False)
+            f.write("\n")
+        print(f"merge: {args.restate}, its text made again -> {args.out}")
+        return
 
     with open(args.sources, encoding="utf-8") as f:
         sources = json.load(f)["sources"]

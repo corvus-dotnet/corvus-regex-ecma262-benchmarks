@@ -104,9 +104,13 @@ jobs:
         if [ -f out-data/runs.json ]; then runs=(--runs out-data/runs.json); fi
         python3 tools/merge.py "${runs[@]}" --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
     - name: The data already published
-      # A push builds the page again from the published data: no image has run.
+      # A push builds the page again from the published data: no image has run. The page's text (title, lede, the
+      # "How to read this" section and the rows' labels) is made again by this commit's merge.py, so that a change to
+      # it reaches the page now and not at the next night's run.
       if: github.event_name == 'push'
-      run: mkdir -p out-data && cp previous/data/latest.json out-data/latest.json
+      run: |
+        mkdir -p out-data
+        python3 tools/merge.py --restate previous/data/latest.json --out out-data/latest.json
     - name: Keep the run
       if: github.event_name != 'push'
       uses: actions/upload-artifact@v4

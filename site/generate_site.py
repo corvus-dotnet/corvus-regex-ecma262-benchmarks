@@ -85,13 +85,13 @@ def engines_of(data, path):
         engines.append((min(order[i] for i in ids), {
             "name": e["name"], "group": impls[ids[0]].get("group", ""),
             "versions": [v for v in versions if v], "rows": [impls[i]["name"] for i in ids],
-            "package": e.get("package"), "source": e.get("source")}))
+            "package": e.get("package"), "source": e.get("source"), "how": e.get("how", "")}))
     for i in data["impls"]:
         if i["id"] not in named:
             print(f"generate_site: {path} has no entry for '{i['id']}'; it is listed without links", file=sys.stderr)
             engines.append((order[i["id"]], {
                 "name": i["name"], "group": i.get("group", ""), "versions": [i["version"]] if i.get("version") else [],
-                "rows": [i["name"]], "package": None, "source": None}))
+                "rows": [i["name"]], "package": None, "source": None, "how": ""}))
     return [e for _, e in sorted(engines, key=lambda t: t[0])]
 
 

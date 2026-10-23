@@ -172,6 +172,7 @@ table.engines { border-collapse: collapse; width: 100%; font-size: 14px; }
 .engines tr.grp th { padding-top: 16px; font-weight: 600; border-bottom: 0; }
 .engines td.ver, .engines td.rows { font-family: var(--font-data); font-size: 12px; color: var(--ink-2); }
 .engines td.rows span { display: block; }
+.engines th .how { display: block; margin-top: 2px; max-width: 46ch; font-weight: 400; font-size: 13px; color: var(--ink-2); }
 /* At phone width each engine is a block: its name, version and rows, then where to get it and its source. */
 @media (max-width: 640px) {
   table.engines, .engines tbody { display: block; }
@@ -533,7 +534,7 @@ function renderEngines() {
   document.getElementById("engines").hidden = false;
   document.getElementById("engines-title").textContent = V.Impls;
   document.getElementById("engines-note").textContent =
-    `Every ${V.impl} on this page, the version its run reported, the rows it has here, and where to get it and its source.`;
+    `Every ${V.impl} on this page, how the runs call it, the version its run reported, the rows it has here, and where to get it and its source.`;
   let body = "", group = null;
   for (const e of engines) {
     if (e.group !== group) {
@@ -542,7 +543,8 @@ function renderEngines() {
     }
     const pkg = e.package && e.package.url ? `<a href="${esc(e.package.url)}">${esc(e.package.label || linkText(e.package.url))}</a>` : "";
     const src = e.source ? `<a href="${esc(e.source)}">${esc(linkText(e.source))}</a>` : "";
-    body += `<tr><th scope="row">${esc(e.name)}</th><td class="ver">${esc(e.versions.join(", "))}</td>` +
+    const how = e.how ? `<span class="how">${esc(e.how)}</span>` : "";
+    body += `<tr><th scope="row">${esc(e.name)}${how}</th><td class="ver">${esc(e.versions.join(", "))}</td>` +
       `<td class="rows">${e.rows.map(r => `<span>${esc(r)}</span>`).join("")}</td><td>${pkg}</td><td>${src}</td></tr>`;
   }
   document.getElementById("engines-table").innerHTML =

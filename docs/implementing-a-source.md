@@ -250,7 +250,9 @@ The image writes one data file, `/out/industry.json`, in the page's shape, which
 
 - `meta`: the title, the repository, the commit, the date, the workflow run's URL, the runner and the host as the
   harness recorded them (never typed in by hand), the facts, and `method`, an HTML description of how the figures were
-  made.
+  made. The method stays in the data for anyone reading it; the page itself does not show it. The page's text is this
+  repository's, so that it reads the same for every engine: the general text in `tools/merge.py` and each engine's
+  `how` in `site/engines.json` (see [Registering](#registering)).
 - `impls`: one entry per engine, with its `id`, its `name`, its `group` (the language; V8's group is `V8`), its
   `version` as the engine reports it, and its `compliance` (the object above, or `"not ECMA-262"`).
 - `schemas`: one entry per workload, named by its `id`, with its text in `meta`.
@@ -336,8 +338,11 @@ at the tag of its repository's newest GitHub release. There are two kinds of rel
    One repository can provide two sources, each with its own image. The Rust crate and its C library are the sources
    `rust` and `c`.
 2. Add an entry to `site/engines.json` for each engine the source measures: its name, the result rows it covers
-   (`<id>/<name>`), where to get it (`package`, a label and a link) and its source code (a link). The page lists these
-   at its foot.
+   (`<id>/<name>`), where to get it (`package`, a label and a link), its source code (a link), and `how`, one or two
+   sentences on how the harness calls it: the interface, the encodings, the flags and how matches are counted, written
+   as every other entry is (for example "Python's re, with the pattern as it is and the workload's i, m and s flags,
+   its matches counted with finditer."). The page lists these at its foot. Each row's name gains its platform on the
+   page ("re (Python)") unless the name already says it.
 
 The engines appear at the next nightly build, or at a run started by hand (`workflow_dispatch`). Before then, check:
 
