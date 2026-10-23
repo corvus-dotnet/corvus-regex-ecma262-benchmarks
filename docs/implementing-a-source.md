@@ -262,13 +262,15 @@ well if it was stopped at the limit. The results script turns this into the data
 The image writes one data file, `/out/industry.json`, in the page's shape, which is documented at the top of
 `site/generate_site.py` in this repository.
 
-- `meta`: the title, the repository, the commit, the date, the workflow run's URL, the runner and the host as the
+- `meta`: the title, the repository, the commit, the date (ISO 8601 with its zone, such as
+  `2026-10-24T05:00:00Z`), the workflow run's URL, the runner and the host as the
   harness recorded them (never typed in by hand), the facts, and `method`, an HTML description of how the figures were
   made. The method stays in the data for anyone reading it; the page itself does not show it. The page's text is this
   repository's, so that it reads the same for every engine: the general text in `tools/merge.py` and each engine's
   `how` in `site/engines.json` (see [Registering](#registering)).
 - `impls`: one entry per engine, with its `id`, its `name`, its `group` (the language; V8's group is `V8`), its
-  `version` as the engine reports it, and its `compliance` (the object above, or `"not ECMA-262"`).
+  `version` as the engine reports it, and its `compliance` (the object above, or `"not ECMA-262"`). The id, the name
+  and the version are strings.
 - `schemas`: one entry per workload, named by its `id`, with its text in `meta`.
 - `measures`: `time`, in nanoseconds per count.
 - `results`: for each engine and workload, `{"time": {"median": n, "min": n, "max": n}}`. A figure that failed has
@@ -282,7 +284,8 @@ The image writes one data file, `/out/industry.json`, in the page's shape, which
 
   Never use `null` for a failure whose reason the harness knows.
 
-When the nightly build merges the sources, it prefixes every engine id with the source id, groups engines by language,
+A file whose parts, ids, names, versions, compliance or date are not of these kinds is not merged: the source is
+shown as not run that night, with the reason. When the nightly build merges the sources, it prefixes every engine id with the source id, groups engines by language,
 shows V8 once, matches workloads by name, and dates the page by its newest source.
 
 ## The image

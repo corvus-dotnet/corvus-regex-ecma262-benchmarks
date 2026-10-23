@@ -4,8 +4,9 @@ Each source in the manifest (sources.json) is an engine repository. With `--runs
 tools/sources.py writes after running every source's container image on this machine), a source's data is the
 file its image wrote here. A source whose image did not run tonight is shown as not run, never filled in from a run
 on another machine, so every figure on the page was measured on this runner. Every file is checked
-against the data shape of site/generate_site.py; a source that cannot be read or does not have the shape is reported
-and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
+against the data shape of site/generate_site.py (`check`: the parts, ids, and the types of the names, versions,
+compliance, words and date the page reads); a source that cannot be read, does not have the shape or cannot be merged
+is reported and skipped, never fatal, so one broken repository never takes the page down. The merged file has:
 
 - `impls`: every source's implementations, each id prefixed with the source id (`dotnet/Corvus interpreter`) and
   `group` set to the source's language; V8 once, from the first source that has it, in the group "V8";
@@ -90,6 +91,21 @@ def check(data):
         if impl["id"] in ids:
             return f"the implementation id '{impl['id']}' is repeated"
         ids.add(impl["id"])
+        for key in ("name", "version"):
+            if impl.get(key) is not None and not isinstance(impl[key], str):
+                return f"the {key} of '{impl['id']}' is not a string"
+        if impl.get("compliance") is not None and not isinstance(impl["compliance"], (str, dict)):
+            return f"the compliance of '{impl['id']}' is neither a phrase nor an object"
+    vocab = data.get("vocab")
+    if vocab is not None and (not isinstance(vocab, dict) or not all(isinstance(v, str) for v in vocab.values())):
+        return "'vocab' is not an object of words"
+    date = data["meta"].get("date")
+    if date is not None:
+        parsed = parse_date(date)
+        if parsed is None:
+            return f"the date '{date}' is not an ISO 8601 date"
+        if parsed.tzinfo is None:
+            return f"the date '{date}' has no zone"
     for schema in data["schemas"]:
         if not isinstance(schema, dict) or not isinstance(schema.get("name"), str):
             return "a workload has no name"
@@ -200,6 +216,48 @@ def page_text(here, test_data):
     return lede, [what, figure, measured, where, compliance, stopped, count]
 
 
+def take(source, data, ran, have_v8):
+    """What one source adds to the page: its implementations (ids prefixed with the source id, grouped by its
+    language; V8 only when no source before it gave V8), their results, its measures and workloads, its date, its fact
+    and its links. Raises on a file it cannot read, which merge() then reports as that source skipped."""
+    sid, language = source["id"], source["language"]
+    meta = data["meta"]
+    repo = source.get("repo") or meta.get("repo") or ""
+    part = {"vocab": data.get("vocab"), "defaultMeasure": meta.get("defaultMeasure"),
+            "measures": list(data["measures"].items()), "schemas": [dict(s) for s in data["schemas"]],
+            "impls": [], "results": {}, "v8": False, "v8Dropped": False, "links": []}
+    for impl in data["impls"]:
+        v8 = is_v8(impl)
+        if v8 and (have_v8 or part["v8"]):
+            part["v8Dropped"] = True
+            continue
+        merged = dict(impl)
+        merged["id"] = f"{sid}/{impl['id']}"
+        merged["name"] = impl.get("name") or impl["id"]
+        merged["group"] = "V8" if v8 else language
+        merged["source"] = sid
+        part["v8"] = part["v8"] or v8
+        part["impls"].append(merged)
+        part["results"][merged["id"]] = data["results"].get(impl["id"], {})
+
+    date = meta.get("date") or ""
+    parsed = parse_date(date)
+    part["date"] = (parsed, date) if parsed else None
+    commit = str(meta.get("commit") or "")
+    when = parsed.strftime("%Y-%m-%d %H:%M UTC") if parsed and len(date) > 10 else (date or "time not recorded")
+    release = f"{ran.get('image', 'image')}:{ran.get('tag', '?')}"
+    started, finished = parse_date(ran.get("started")), parse_date(ran.get("finished"))
+    span = f"{started:%H:%M}-{finished:%H:%M} UTC" if started and finished else when
+    part["fact"] = f"{release}, commit {commit[:10] or 'not recorded'}, ran here {span}"
+    if repo:
+        part["links"].append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
+    if meta.get("runUrl"):
+        part["links"].append({"label": f"{language} run", "url": meta["runUrl"]})
+    # The page's own label is made here too, so that a name the label cannot read fails this source alone.
+    label([dict(i) for i in part["impls"]])
+    return part
+
+
 def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
@@ -235,49 +293,36 @@ def merge(sources, run_url="", runs=None):
             facts.append([language, f"not run tonight: {why or 'its image did not run'}"])
             notes.append(f"{html.escape(language)}: not run tonight ({html.escape(why or 'its image did not run')})")
             continue
+        try:
+            # What the source adds is worked out whole before any of it is added, so that a surprise in one source's
+            # file skips that source and never stops the page.
+            part = take(source, data, ran, v8_from is not None)
+        except Exception as e:  # noqa: BLE001 (any surprise in a source's file is that source's alone)
+            why = f"its data file could not be merged ({type(e).__name__}: {e})"
+            warn(f"{sid}: skipped ({why})")
+            facts.append([language, f"skipped: {why}"])
+            notes.append(f"{html.escape(language)}: skipped ({html.escape(why)})")
+            continue
         here.append(language)
         used += 1
-        meta = data["meta"]
-        repo = source.get("repo") or meta.get("repo") or ""
-        vocab = vocab or data.get("vocab")
-        default_measure = default_measure or meta.get("defaultMeasure")
-
-        for key, measure in data["measures"].items():
+        vocab = vocab or part["vocab"]
+        default_measure = default_measure or part["defaultMeasure"]
+        for key, measure in part["measures"]:
             measures.setdefault(key, measure)
-        for schema in data["schemas"]:
+        for schema in part["schemas"]:
             if schema["name"] not in schema_names:
                 schema_names.add(schema["name"])
                 schemas.append(schema)
-
-        for impl in data["impls"]:
-            v8 = is_v8(impl)
-            if v8 and v8_from is not None:
-                v8_dropped.append(language)
-                continue
-            merged = dict(impl)
-            merged["id"] = f"{sid}/{impl['id']}"
-            merged["name"] = impl.get("name") or impl["id"]
-            merged["group"] = "V8" if v8 else language
-            merged["source"] = sid
-            if v8:
-                v8_from = language
-            impls.append(merged)
-            results[merged["id"]] = data["results"].get(impl["id"], {})
-
-        date = meta.get("date") or ""
-        parsed = parse_date(date)
-        if parsed:
-            dates.append((parsed, date))
-        commit = str(meta.get("commit") or "")
-        when = parsed.strftime("%Y-%m-%d %H:%M UTC") if parsed and len(date) > 10 else (date or "time not recorded")
-        release = f"{ran.get('image', 'image')}:{ran.get('tag', '?')}"
-        started, finished = parse_date(ran.get("started")), parse_date(ran.get("finished"))
-        span = f"{started:%H:%M}-{finished:%H:%M} UTC" if started and finished else when
-        facts.append([language, f"{release}, commit {commit[:10] or 'not recorded'}, ran here {span}"])
-        if repo:
-            links.append({"label": f"{language} repository", "url": f"https://github.com/{repo}"})
-        if meta.get("runUrl"):
-            links.append({"label": f"{language} run", "url": meta["runUrl"]})
+        if part["v8Dropped"]:
+            v8_dropped.append(language)
+        if part["v8"]:
+            v8_from = language
+        impls.extend(part["impls"])
+        results.update(part["results"])
+        if part["date"]:
+            dates.append(part["date"])
+        facts.append([language, part["fact"]])
+        links.extend(part["links"])
 
     label(impls)
 
