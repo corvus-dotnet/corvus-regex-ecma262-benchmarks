@@ -129,7 +129,8 @@ asked:
 - `grammars`: the grammars the engine implements, of `"legacy"`, `"unicode"` (u) and `"unicode_sets"` (v). An engine
   that implements only some (SRELL has only u and v; `std::regex` has neither) gives them, and its runner asks under
   those alone. Absent, the engine is taken to implement all three.
-- `unicode`: the version of the engine's Unicode Character Database (`"18.0"`). An engine whose version is not the
+- `unicode`: the version of the engine's Unicode Character Database, as `"major.minor"` (`"18.0"`; a number, or a
+  string such as `"18"` or `"18.0.0"`, is read as that). An engine whose version is not the
   data's (V8's, in the data's `manifest.json`) gives it, and its runner reads the data with that version's overlay
   applied (`node unicode.js apply <version> <dir>` in the test data repository), so that it is asked the answers of
   its version. Absent, the engine is taken to have the data's version.
@@ -170,10 +171,12 @@ progress within that limit counts as unanswered, together with every answer it w
 
 Such a run can take a long time (regress takes over an hour), so the image does not repeat it every night. The source
 works out those counts once and checks them in beside the harness as `compliance-<engine>.txt`. Such counts are tied
-to the commit of the data they were made at, and are kept honest by three rules.
+to the commit of the data they were made at, and are held to three rules.
 
 - **The file says its commit.** Its first line is `data <full commit>`, the commit of the test data the counts were
-  made at; the runner's output follows.
+  made at; the runner's output follows. The commit is the full 40 characters: a prefix of the nightly pin is read as
+  the pin, and any other commit that is not a full one leaves the engine's compliance off the page, with a note that
+  says why (the rest of the source is shown).
 - **The page judges them against that commit.** The results script copies the commit into the engine's `compliance`
   object as `dataCommit`. When it differs from the nightly pin, the nightly build counts what that commit asks with
   `tools/answers.py`, and the page shows the engine's share of those answers with "counted at the test data's

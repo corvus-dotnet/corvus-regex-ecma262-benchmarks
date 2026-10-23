@@ -51,7 +51,7 @@ import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from merge import check  # noqa: E402
+from merge import check, normalise_compliance, unicode_version  # noqa: E402
 
 # The container engine: docker on the runner; CONTAINER_ENGINE=podman for a local run on a machine without docker.
 ENGINE = os.environ.get("CONTAINER_ENGINE", "docker")
@@ -192,9 +192,14 @@ def asked(path, pin, unicode):
         return set()
     out = set()
     for i in impls:
-        c = i.get("compliance") if isinstance(i, dict) else None
+        try:
+            # As merge.py writes it on the page (a version "major.minor", a prefix of the pin as the pin), so that the
+            # page finds the answers counted here.
+            c = normalise_compliance(i.get("compliance"), pin["commit"]) if isinstance(i, dict) else None
+        except ValueError:
+            continue  # the page does not show this compliance
         if isinstance(c, dict):
-            pair = (c.get("dataCommit") or pin["commit"], str(c.get("unicode") or unicode))
+            pair = (c.get("dataCommit") or pin["commit"], c.get("unicode") or unicode)
             if pair != (pin["commit"], unicode):
                 out.add(pair)
     return out
@@ -268,7 +273,7 @@ def run(args):
         unicode = None
         try:
             with open(os.path.join(data_dir, "manifest.json"), encoding="utf-8") as f:
-                unicode = json.load(f).get("unicode")
+                unicode = unicode_version(json.load(f).get("unicode"))
         except (OSError, ValueError):
             pass
         runs["testData"] = dict(pin, unicode=unicode,

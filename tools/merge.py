@@ -123,6 +123,49 @@ def check(data):
     return None
 
 
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def unicode_version(value):
+    """A version of Unicode as the page and the test data's overlays name it, "major.minor" ("18.0"), from a number
+    (18.0, which JSON writes as 18) or a dotted string ("18", "18.0", "18.0.0"); None when absent. Raises ValueError
+    on anything else. sources.py keys the answers of a version by this, and the page looks them up by it, so the two
+    always agree."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"the version of Unicode {value!r} is not a version")
+    parts = (f"{float(value):.1f}" if isinstance(value, (int, float)) else value.strip()).split(".")
+    if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"the version of Unicode {value!r} is not a version")
+    return f"{int(parts[0])}.{int(parts[1]) if len(parts) > 1 else 0}"
+
+
+def normalise_compliance(c, pin=None):
+    """An engine's compliance with its version of Unicode as unicode_version() writes it and its dataCommit as the full
+    commit: a prefix of the night's pin (as the page's facts print it) becomes the pin. Raises ValueError on a version
+    that is not one, or on a dataCommit that is not a full commit and not a prefix of the pin, which could not be
+    fetched to count what it asks. A phrase ("not ECMA-262") or an absent compliance is returned as it is."""
+    if not isinstance(c, dict):
+        return c
+    c = dict(c)
+    if "unicode" in c:
+        c["unicode"] = unicode_version(c["unicode"])
+        if c["unicode"] is None:
+            del c["unicode"]
+    commit = c.get("dataCommit")
+    if commit not in (None, ""):
+        commit = str(commit).strip().lower()
+        if pin and len(commit) >= 7 and pin.lower().startswith(commit):
+            commit = pin
+        if not COMMIT.match(commit):
+            raise ValueError(f"the dataCommit '{c['dataCommit']}' is not a full commit of the test data")
+        c["dataCommit"] = commit
+    elif "dataCommit" in c:
+        del c["dataCommit"]
+    return c
+
+
 def is_v8(impl):
     return impl.get("group") == "V8" or str(impl.get("name") or impl["id"]).startswith("V8")
 
@@ -219,16 +262,17 @@ def page_text(here, test_data):
     return lede, [what, figure, measured, where, compliance, stopped, count]
 
 
-def take(source, data, ran, have_v8):
+def take(source, data, ran, have_v8, pin=None):
     """What one source adds to the page: its implementations (ids prefixed with the source id, grouped by its
     language; V8 only when no source before it gave V8), their results, its measures and workloads, its date, its fact
-    and its links. Raises on a file it cannot read, which merge() then reports as that source skipped."""
+    and its links, and notes on any compliance not shown (normalise_compliance). Raises on a file it cannot read,
+    which merge() then reports as that source skipped."""
     sid, language = source["id"], source["language"]
     meta = data["meta"]
     repo = source.get("repo") or meta.get("repo") or ""
     part = {"defaultMeasure": meta.get("defaultMeasure"),
             "measures": list(data["measures"].items()), "schemas": [dict(s) for s in data["schemas"]],
-            "impls": [], "results": {}, "v8": False, "v8Dropped": False, "links": []}
+            "impls": [], "results": {}, "v8": False, "v8Dropped": False, "links": [], "notes": []}
     for impl in data["impls"]:
         v8 = is_v8(impl)
         if v8 and (have_v8 or part["v8"]):
@@ -239,6 +283,14 @@ def take(source, data, ran, have_v8):
         merged["name"] = impl.get("name") or impl["id"]
         merged["group"] = "V8" if v8 else language
         merged["source"] = sid
+        try:
+            merged["compliance"] = normalise_compliance(impl.get("compliance"), pin)
+        except ValueError as e:
+            # Its compliance alone is not shown: the rest of the source is.
+            merged.pop("compliance", None)
+            part["notes"].append(f"{merged['name']}: {e}")
+        if merged.get("compliance") is None:
+            merged.pop("compliance", None)
         part["v8"] = part["v8"] or v8
         part["impls"].append(merged)
         part["results"][merged["id"]] = data["results"].get(impl["id"], {})
@@ -265,7 +317,8 @@ def merge(sources, run_url="", runs=None):
     impls, schemas, measures, results = [], [], {}, {}
     schema_names = set()
     default_measure = None
-    facts, links, notes = [], [], []
+    facts, links, notes, unshown = [], [], [], []
+    pin = ((runs or {}).get("testData") or {}).get("commit")
     v8_from, v8_dropped = None, []
     dates = []
     used = 0
@@ -299,7 +352,7 @@ def merge(sources, run_url="", runs=None):
         try:
             # What the source adds is worked out whole before any of it is added, so that a surprise in one source's
             # file skips that source and never stops the page.
-            part = take(source, data, ran, v8_from is not None)
+            part = take(source, data, ran, v8_from is not None, pin)
         except Exception as e:  # noqa: BLE001 (any surprise in a source's file is that source's alone)
             why = f"its data file could not be merged ({type(e).__name__}: {e})"
             warn(f"{sid}: skipped ({why})")
@@ -324,6 +377,9 @@ def merge(sources, run_url="", runs=None):
         if part["date"]:
             dates.append(part["date"])
         facts.append([language, part["fact"]])
+        for note in part["notes"]:
+            facts.append([language, f"compliance not shown: {note}"])
+            unshown.append(f"{html.escape(language)}: {html.escape(note)}")
         links.extend(part["links"])
 
     label(impls)
@@ -335,6 +391,8 @@ def merge(sources, run_url="", runs=None):
         method.append(f"<p><b>V8</b> appears once, from the {html.escape(v8_from)} run{html.escape(dropped)}.</p>")
     if notes:
         method.append("<p><b>Sources skipped this time:</b> " + "; ".join(notes) + ".</p>")
+    if unshown:
+        method.append("<p><b>Compliance not shown:</b> " + "; ".join(unshown) + ".</p>")
     # Each image's own method text stays in its data file; the page's text is this repository's (page_text and
     # site/engines.json), so that it reads the same for every engine.
 
@@ -380,7 +438,7 @@ def restate(data):
     meta = data.setdefault("meta", {})
     old = meta.get("method", "")
     lede, method = page_text(NO_ENGINE_RAN not in meta.get("lede", ""), meta.get("testData"))
-    kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>).*?</p>", old, flags=re.S)
+    kept = re.findall(r"<p><b>(?:V8</b>|Sources skipped this time:</b>|Compliance not shown:</b>).*?</p>", old, flags=re.S)
     meta["title"], meta["lede"], meta["method"] = TITLE, lede, "".join(method + kept)
     data["vocab"] = dict(VOCAB)
     label(data.get("impls", []))
