@@ -1,4 +1,4 @@
-# ECMA-262 regex engine benchmarks
+# Regex engines: ECMA-262 Compliance and the Industry benchmarks
 
 One page that shows ECMA-262 regex engines side by side, with each platform's own regex engines and V8 as the common
 reference: how closely each answers as V8 does over the ECMA-262 test data, and how fast each counts matches over the

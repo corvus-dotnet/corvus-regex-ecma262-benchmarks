@@ -34,7 +34,7 @@ import re
 import sys
 import urllib.request
 
-TITLE = "Regex engines on every platform: ECMA-262 compliance and performance"
+TITLE = "Regex engines: ECMA-262 Compliance and the Industry benchmarks"
 REPO = "corvus-dotnet/corvus-regex-ecma262-benchmarks"
 TEST_DATA_REPO = "corvus-dotnet/ecma262-regex-test-data"
 
