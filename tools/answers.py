@@ -13,13 +13,16 @@ runner judges an engine" in its README): what a compliance figure of 100% is a s
 - In ill-formed-utf8.jsonl a test holds bytes that are not UTF-8, and is one answer over UTF-8 alone (the right one
   a refusal) under each grammar the pattern is valid in.
 
-An engine's figure is its right answers over the answers of the encodings it answers in, so an answer its runner did
-not ask counts against it as a wrong one does.
+An engine's figure is its right answers over the answers of the encodings and the grammars it answers in, so an
+answer its runner did not ask counts against it as a wrong one does. The counts are given in total, for each grammar
+and for each file. The answers are V8's, from its version of Unicode; with --unicode, the counts are those of the data
+with that version's overlay applied (data/unicode/<version>.jsonl: answers and validities that differ under it), as
+an engine of that version is asked.
 
 Python 3 standard library only.
 
 Usage:
-    python3 tools/answers.py <the test data's data directory>
+    python3 tools/answers.py <the test data's data directory> [--unicode <version>]
 """
 
 import json
@@ -31,18 +34,56 @@ def lone(s):
     return any(0xD800 <= ord(c) <= 0xDFFF for c in s)
 
 
-def count(data_dir):
-    """{"utf16": n, "utf8": n, "files": {name: {"utf16": n, "utf8": n}}} for the data in data_dir."""
-    files, total16, total8 = {}, 0, 0
+GRAMMARS = ("unicode", "legacy", "unicode_sets")
+
+
+def overlay(data_dir, unicode):
+    """The overlay of a version of Unicode: {(file, line): [entries]}, or None when there is none."""
+    path = os.path.join(data_dir, "unicode", f"{unicode}.jsonl")
+    if not os.path.isfile(path):
+        return None
+    entries = {}
+    with open(path, encoding="utf-8", errors="surrogatepass") as f:
+        for line in f:
+            if line.strip():
+                e = json.loads(line)
+                entries.setdefault((e["file"], e["line"]), []).append(e)
+    return entries
+
+
+def patched(record, entries):
+    """A record with the overlay's entries for it applied, as unicode.js apply in the test data applies them."""
+    for e in entries:
+        if "valid" in e:
+            record["valid"][e["grammar"]] = e["valid"]
+            if not e["valid"]:
+                for t in record.get("tests") or []:
+                    t.pop(e["grammar"], None)
+        else:
+            record["tests"][e["test"]][e["grammar"]] = e["answer"]
+    return record
+
+
+def count(data_dir, unicode=None):
+    """{"utf16": n, "utf8": n, "grammars": {grammar: {"utf16": n, "utf8": n}}, "files": {name: {...}}} for the data
+    in data_dir, with the overlay of a version of Unicode applied when one is named. Raises LookupError when the data
+    has no overlay for that version."""
+    changes = overlay(data_dir, unicode) if unicode else {}
+    if changes is None:
+        raise LookupError(f"the test data has no overlay for Unicode {unicode}")
+    files = {}
+    by_grammar = {g: {"utf16": 0, "utf8": 0} for g in GRAMMARS}
     for name in sorted(f for f in os.listdir(data_dir) if f.endswith(".jsonl")):
-        a16 = a8 = 0
+        per = {g: [0, 0] for g in GRAMMARS}
         captures = name == "captures.jsonl"
         ill_formed = name == "ill-formed-utf8.jsonl"
         with open(os.path.join(data_dir, name), encoding="utf-8", errors="surrogatepass") as f:
-            for line in f:
+            for number, line in enumerate(f, 1):
                 if not line.strip():
                     continue
                 record = json.loads(line)
+                if (name, number) in changes:
+                    record = patched(record, changes[(name, number)])
                 if record.get("v8_deviation"):
                     continue
                 valid = record.get("valid", {})
@@ -50,33 +91,43 @@ def count(data_dir):
                 for grammar in grammars:
                     if not valid.get(grammar):
                         continue
+                    a = per[grammar]
                     for test in record.get("tests") or []:
                         if ill_formed:
-                            a8 += 1
+                            a[1] += 1
                             continue
                         if test.get("v8_deviation") or grammar not in test:
                             continue
                         text = test.get("text", "")
                         whole = not lone(text)
                         if captures:
-                            a16 += 7 if text else 6
+                            a[0] += 7 if text else 6
                             if whole:
                                 # Python reads a pair's escapes as one code point beyond U+FFFF.
                                 mid = ord(text[0]) > 0xFFFF if text else False
-                                a8 += 5 if text and not mid else 4
+                                a[1] += 5 if text and not mid else 4
                         else:
-                            a16 += 1
-                            a8 += 1 if whole else 0
-        files[name] = {"utf16": a16, "utf8": a8}
-        total16 += a16
-        total8 += a8
-    return {"utf16": total16, "utf8": total8, "files": files}
+                            a[0] += 1
+                            a[1] += 1 if whole else 0
+        files[name] = {"utf16": sum(v[0] for v in per.values()), "utf8": sum(v[1] for v in per.values()),
+                       "grammars": {g: {"utf16": v[0], "utf8": v[1]} for g, v in per.items()}}
+        for g, v in per.items():
+            by_grammar[g]["utf16"] += v[0]
+            by_grammar[g]["utf8"] += v[1]
+    return {"utf16": sum(g["utf16"] for g in by_grammar.values()), "utf8": sum(g["utf8"] for g in by_grammar.values()),
+            "grammars": by_grammar, "files": files}
 
 
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    unicode = None
+    if "--unicode" in args:
+        k = args.index("--unicode")
+        unicode = args[k + 1]
+        del args[k:k + 2]
+    if len(args) != 1:
         raise SystemExit(__doc__.strip().splitlines()[-1].strip())
-    print(json.dumps(count(sys.argv[1]), indent=1))
+    print(json.dumps(count(args[0], unicode), indent=1))
 
 
 if __name__ == "__main__":

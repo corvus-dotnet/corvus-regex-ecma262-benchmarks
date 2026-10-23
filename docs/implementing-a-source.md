@@ -122,25 +122,39 @@ CI keeps when the run fails.
 ### What the page shows
 
 The results script gives each ECMA-262 engine a `compliance` object. It holds the counts (`right`, `wrong`,
-`refused`, `acceptedInvalid`, and `limited`, which is the runner's `limit` plus `errors`) and `encodings`, the
-encodings the runner asks in (`["utf16", "utf8"]`, or just one of them).
+`refused`, `acceptedInvalid`, and `limited`, which is the runner's `limit` plus `errors`) and says what the runner
+asked:
 
-The nightly build works out how many answers the data asks in each encoding, by the rule above, with
-`tools/answers.py`. An engine's figure is its right answers over all the answers in its encodings. An answer the
-runner never asked counts against the engine exactly as a wrong answer does.
+- `encodings`: the encodings the runner asks in (`["utf16", "utf8"]`, or just one of them).
+- `grammars`: the grammars the engine implements, of `"legacy"`, `"unicode"` (u) and `"unicode_sets"` (v). An engine
+  that implements only some (SRELL has only u and v; `std::regex` has neither) gives them, and its runner asks under
+  those alone. Absent, the engine is taken to implement all three.
+- `unicode`: the version of the engine's Unicode Character Database (`"18.0"`). An engine whose version is not the
+  data's (V8's, in the data's `manifest.json`) gives it, and its runner reads the data with that version's overlay
+  applied (`node unicode.js apply <version> <dir>` in the test data repository), so that it is asked the answers of
+  its version. Absent, the engine is taken to have the data's version.
+- `dataCommit`, for counts checked in beside the harness (see below).
+
+The nightly build works out how many answers the data asks in each encoding and grammar, by the rule above, with
+`tools/answers.py` (and for another version of Unicode, with that version's overlay applied). An engine's figure is
+its right answers over all the answers in its encodings and grammars, of its version of Unicode. An answer the runner
+never asked counts against the engine exactly as a wrong answer does. The list of engines on the page gives each
+engine's grammars and version.
 
 - **✓ 100%** means every answer was asked and every one was right, and the engine's match count agrees with V8's on
   every workload. (A different count is a wrong answer the data did not catch. See
   [The count check](#the-count-check).)
-- An engine that answers in one encoding only says which, for example "100% ECMA-262 (UTF-16)".
+- An engine that answers in one encoding, implements only some grammars or has another version of Unicode says so,
+  for example "100% ECMA-262 (UTF-16)" or "99.88% ECMA-262 (UTF-16; u and v; Unicode 18.0)".
 - If a runner gives no `encodings`, or counts more answers than the data asks (so it is not counting by the rule),
   the page shows its share "of asked" and never shows it as fully compliant.
 
 ### Checking a runner before you publish it
 
-- Run `python3 tools/answers.py <data directory>` in this repository. It prints how many answers the data asks in
-  each encoding, file by file. A runner that asks every answer has `right + wrong + unanswered` equal to those numbers
-  in every file. A file where they differ is where the runner departs from the rule.
+- Run `python3 tools/answers.py <data directory> [--unicode <version>]` in this repository. It prints how many
+  answers the data asks in each encoding, in total, for each grammar and file by file (with `--unicode`, those of that
+  version). A runner that asks every answer of its encodings and grammars has `right + wrong + unanswered` equal to
+  those numbers in every file. A file where they differ is where the runner departs from the rule.
 - Run `node fuzz.js <out directory> [seed] [patterns]` in the test data repository. It writes a fresh start-searches
   family, answered by V8, as a data directory the runner can read in place of `data/`. Run the runner over several
   seeds. A wrong answer points to a fault in the engine's search for a start, and the case belongs in the engine's own

@@ -34,8 +34,9 @@
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
         tonight. With --budget-minutes, no source runs past that many minutes from the start: each is given the less
         of its own limit and the time left, and one that would start with none left is recorded as not run. Counts a
-        source worked out at another commit of the data (an engine's compliance with a dataCommit) are judged against
-        what that commit asks: the answers each such commit asks are counted into runs.json's testData.answersAt.
+        source made at another commit of the data (an engine's compliance with a dataCommit), or for another version
+        of Unicode (one with a unicode), are judged against what was asked of them: the answers of each such commit
+        and version are counted into runs.json's testData.answersAt.
 
 Python 3 standard library only. GITHUB_TOKEN, when set, authenticates the GitHub API calls.
 """
@@ -179,35 +180,49 @@ def data(args):
     fetch_data(pin["repo"], pin["commit"], os.path.abspath(args.data))
 
 
-def data_commits(path):
-    """The commits of the test data that a source's data file says some of its counts were worked out at: the
-    dataCommit of each engine's compliance (counts checked in beside a harness, for an engine too slow to judge every
-    night)."""
+def asked(path, pin, unicode):
+    """The questions a source's engines were asked, other than the night's: each (commit, Unicode version) of an
+    engine's compliance, its dataCommit (counts checked in beside a harness, for an engine too slow to judge every
+    night) or the pin, and its unicode (an engine with another version of the Unicode Character Database than V8's)
+    or the data's own."""
     try:
         with open(path, encoding="utf-8") as f:
             impls = json.load(f).get("impls", [])
     except (OSError, ValueError, AttributeError):
         return set()
-    return {i["compliance"]["dataCommit"] for i in impls
-            if isinstance(i, dict) and isinstance(i.get("compliance"), dict) and i["compliance"].get("dataCommit")}
+    out = set()
+    for i in impls:
+        c = i.get("compliance") if isinstance(i, dict) else None
+        if isinstance(c, dict):
+            pair = (c.get("dataCommit") or pin["commit"], str(c.get("unicode") or unicode))
+            if pair != (pin["commit"], unicode):
+                out.add(pair)
+    return out
 
 
-def answers_at(runs, pin, work):
-    """The answers asked in each encoding at every other commit of the test data that a source's counts were worked
-    out at, into runs["testData"]["answersAt"], so that the page judges such counts against what their commit asks."""
+def answers_at(runs, pin, work, data_dir):
+    """The answers asked in each encoding and grammar for every (commit, Unicode version) a source's counts were made
+    at other than the night's, into runs["testData"]["answersAt"] keyed "<commit>|<version>", so that the page judges
+    such counts against what was asked of them."""
     import answers
+    unicode = runs["testData"].get("unicode")
     found = {}
     for record in runs["sources"].values():
-        for commit in data_commits(record.get("file")) if record.get("file") else ():
-            if commit == pin["commit"] or commit in found:
+        for commit, version in asked(record.get("file"), pin, unicode) if record.get("file") else ():
+            key = f"{commit}|{version}"
+            if key in found:
                 continue
             try:
-                target = os.path.join(work, "test-data-" + commit[:12])
-                if not os.path.isdir(os.path.join(target, "data")):
-                    fetch_data(pin["repo"], commit, target)
-                found[commit] = {k: v for k, v in answers.count(os.path.join(target, "data")).items() if k != "files"}
+                directory = data_dir
+                if commit != pin["commit"]:
+                    target = os.path.join(work, "test-data-" + commit[:12])
+                    if not os.path.isdir(os.path.join(target, "data")):
+                        fetch_data(pin["repo"], commit, target)
+                    directory = os.path.join(target, "data")
+                found[key] = {k: v for k, v in answers.count(directory, None if version == unicode else version).items()
+                              if k != "files"}
             except Exception as e:  # the page then shows those counts as a share of what their runner asked
-                log(f"test data at {commit[:10]}: its answers could not be counted ({e})")
+                log(f"test data at {commit[:10]}, Unicode {version}: its answers could not be counted ({e})")
     if found:
         runs["testData"]["answersAt"] = found
 
@@ -249,7 +264,15 @@ def run(args):
     if data_dir and pin:
         # With the number of answers the data asks in each encoding, which every engine's compliance is a share of.
         import answers
-        runs["testData"] = dict(pin, answers={k: v for k, v in answers.count(data_dir).items() if k != "files"})
+        # The version of Unicode V8 answered with, which an engine's compliance is judged at unless it names another.
+        unicode = None
+        try:
+            with open(os.path.join(data_dir, "manifest.json"), encoding="utf-8") as f:
+                unicode = json.load(f).get("unicode")
+        except (OSError, ValueError):
+            pass
+        runs["testData"] = dict(pin, unicode=unicode,
+                                answers={k: v for k, v in answers.count(data_dir).items() if k != "files"})
     start = datetime.datetime.now(datetime.timezone.utc)
 
     def save():
@@ -322,7 +345,7 @@ def run(args):
             log(f"{sid}: done")
             record["file"] = data
     if runs.get("testData"):
-        answers_at(runs, pin, os.path.abspath(args.work))
+        answers_at(runs, pin, os.path.abspath(args.work), data_dir)
     runs["finished"] = now()
     save()
 

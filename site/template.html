@@ -453,34 +453,57 @@ function fmtRatio(r, versus = state.baseline !== "best") {
   return r < 1 ? sig(1 / r) + "× " + better() : sig(r) + "× " + worse();
 }
 // An implementation's compliance (impl.compliance), when the data gives one: its counts on the ECMA-262 test data
-// ({right, wrong, refused, acceptedInvalid, limited}, the encodings it answers in, "utf16" and "utf8", and a note), or a
-// phrase such as "not ECMA-262". The figure is its right answers over every answer the data asks in those encodings
-// (DATA.meta.testData.answers, counted by the data's own rule), so an answer its runner did not ask counts against it as
-// a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's counts,
-// the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown. Counts made at
-// another commit of the data (dataCommit: checked in beside a harness, for an engine too slow to judge every night) are
-// a share of what that commit asks (DATA.meta.testData.answersAt), say which commit, and are never shown as fully
-// compliant, since tonight's data was not asked of that engine.
+// ({right, wrong, refused, acceptedInvalid, limited}), what it was asked (encodings: "utf16" and "utf8"; grammars:
+// "legacy", "unicode" for u and "unicode_sets" for v, all three when absent; unicode: the version of its Unicode
+// Character Database, the data's own when absent) and a note, or a phrase such as "not ECMA-262". The figure is its
+// right answers over every answer the data asks in those encodings and grammars, of that version of Unicode (the data
+// with that version's overlay), counted by the data's own rule, so an answer its runner did not ask counts against it
+// as a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's
+// counts, the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown. Counts
+// made at another commit of the data (dataCommit: checked in beside a harness, for an engine too slow to judge every
+// night) are a share of what that commit asks, say which commit, and are never shown as fully compliant, since
+// tonight's data was not asked of that engine. The answers of another commit or version are in testData.answersAt,
+// keyed "<commit>|<version>".
 // Returns { short, long, cls } or null.
-const ANSWERS = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answers) || null;
-const DATA_COMMIT = (DATA.meta && DATA.meta.testData && DATA.meta.testData.commit) || "";
-const ANSWERS_AT = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answersAt) || {};
+const TEST_DATA = (DATA.meta && DATA.meta.testData) || {};
+const ANSWERS = TEST_DATA.answers || null;
+const DATA_COMMIT = TEST_DATA.commit || "";
+const DATA_UNICODE = TEST_DATA.unicode ? String(TEST_DATA.unicode) : "";
+const ANSWERS_AT = TEST_DATA.answersAt || {};
 const ENCODING = { utf16: "UTF-16", utf8: "UTF-8" };
+const GRAMMAR = { legacy: "legacy", unicode: "u", unicode_sets: "v" };
+// The grammars and the version of Unicode an engine is judged in, for its label: "u and v; Unicode 18.0".
+function askedOf(c) {
+  const grammars = Array.isArray(c.grammars) ? c.grammars.filter(g => g in GRAMMAR) : Object.keys(GRAMMAR);
+  const unicode = c.unicode ? String(c.unicode) : DATA_UNICODE;
+  const words = [];
+  if (grammars.length < 3) words.push(grammars.map(g => GRAMMAR[g]).join(" and "));
+  if (unicode && unicode !== DATA_UNICODE) words.push(`Unicode ${unicode}`);
+  return { grammars, unicode, words };
+}
 function compliance(info) {
   const c = info && info.compliance;
   if (c == null || c === "") return null;
   if (typeof c === "string") return { short: c, long: c, cls: "" };
   const n = v => Number(v || 0).toLocaleString("en");
   const encodings = Array.isArray(c.encodings) ? c.encodings.filter(e => e in ENCODING) : [];
-  const at = c.dataCommit && c.dataCommit !== DATA_COMMIT ? String(c.dataCommit) : "";
-  const asks = at ? ANSWERS_AT[at] || null : ANSWERS;
-  let full = asks && encodings.length ? encodings.reduce((t, e) => t + Number(asks[e] || 0), 0) : 0;
+  const { grammars, unicode, words } = askedOf(c);
+  const commit = c.dataCommit ? String(c.dataCommit) : DATA_COMMIT;
+  const at = commit !== DATA_COMMIT ? commit : "";
+  const elsewhere = at || (unicode && unicode !== DATA_UNICODE);
+  const asks = elsewhere ? ANSWERS_AT[`${commit}|${unicode}`] || null : ANSWERS;
+  // The answers of an encoding in the grammars the engine answers in (a count from before the data gave its grammars
+  // serves only an engine that answers in all three).
+  const inEncoding = e => !asks ? 0 : asks.grammars ? grammars.reduce((t, g) => t + Number((asks.grammars[g] || {})[e] || 0), 0)
+    : grammars.length === 3 ? Number(asks[e] || 0) : 0;
+  let full = asks && encodings.length ? encodings.reduce((t, e) => t + inEncoding(e), 0) : 0;
   const right = Number(c.right || 0);
   // Answers given (a refusal and an acceptance of an invalid pattern are verdicts, which open no answers).
   const answered = right + Number(c.wrong || 0) + Number(c.limited || 0);
   const bad = Number(c.wrong || 0) + Number(c.refused || 0) + Number(c.acceptedInvalid || 0) + Number(c.limited || 0);
   // A runner that counts more answers than the data asks does not count by the data's rule: its figure is a share of
   // what it asked, as for one that does not give its encodings.
+  const asked = full;
   const mismatch = full > 0 && answered > full;
   if (mismatch) full = 0;
   const notAnswered = full ? full - answered : 0;
@@ -488,15 +511,18 @@ function compliance(info) {
   // Rounded down, so one answer short never reads as 100%.
   const pct = of ? Math.floor((right / of) * 10000) / 100 : 0;
   const complete = full > 0 && right === full;
-  const which = encodings.length === 1 ? ` (${ENCODING[encodings[0]]})` : "";
+  const labels = (encodings.length === 1 ? [ENCODING[encodings[0]]] : []).concat(words);
+  const which = labels.length ? ` (${labels.join("; ")})` : "";
   // Against the data's count, short of every answer is never 100%; a share of what a runner asked may be.
   const share = complete || (!full && right === of) ? "100%" : `${(full ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
   const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]]
     .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
   const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
-  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}`
-    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(encodings.reduce((t, e) => t + Number(asks[e] || 0), 0))}, so it does not count by the data's rule`
-    : at && !asks ? ` of the answers its runner asked (what the data asks at the commit it was counted at could not be counted)`
+  const scope = (grammars.length < 3 ? ` in the ${grammars.map(g => GRAMMAR[g]).join(" and ")} grammar${grammars.length > 1 ? "s" : ""}` : "")
+    + (unicode && unicode !== DATA_UNICODE ? `, with the answers of Unicode ${unicode}` : "");
+  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}${scope}`
+    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(asked)}, so it does not count by the data's rule`
+    : elsewhere && !asks ? ` of the answers its runner asked (what the data asks of it${at ? " at the commit it was counted at" : ""}${unicode !== DATA_UNICODE ? ` under Unicode ${unicode}` : ""} could not be counted)`
     : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
   // A count of matches on a workload that differs from V8's is a wrong answer outside the test data: an engine with
   // one is not shown as fully compliant, whatever its share of the data.
@@ -534,21 +560,30 @@ function renderEngines() {
   document.getElementById("engines").hidden = false;
   document.getElementById("engines-title").textContent = V.Impls;
   document.getElementById("engines-note").textContent =
-    `Every ${V.impl} on this page, how the runs call it, the version its run reported, the rows it has here, and where to get it and its source.`;
+    `Every ${V.impl} on this page, how the runs call it, the version its run reported, the ECMA-262 grammars it implements and its version of Unicode (what its compliance is judged in), the rows it has here, and where to get it and its source.`;
   let body = "", group = null;
   for (const e of engines) {
     if (e.group !== group) {
       group = e.group;
-      body += `<tr class="grp"><th colspan="5" scope="colgroup">${esc(group)}</th></tr>`;
+      body += `<tr class="grp"><th colspan="6" scope="colgroup">${esc(group)}</th></tr>`;
     }
     const pkg = e.package && e.package.url ? `<a href="${esc(e.package.url)}">${esc(e.package.label || linkText(e.package.url))}</a>` : "";
     const src = e.source ? `<a href="${esc(e.source)}">${esc(linkText(e.source))}</a>` : "";
     const how = e.how ? `<span class="how">${esc(e.how)}</span>` : "";
-    body += `<tr><th scope="row">${esc(e.name)}${how}</th><td class="ver">${esc(e.versions.join(", "))}</td>` +
+    // The grammars it implements and its Unicode version, as its compliance is judged (all three, and the data's
+    // version, when it does not say); an engine of another dialect says so.
+    const comp = e.compliance;
+    let judged = "";
+    if (typeof comp === "string") judged = comp;
+    else if (comp && typeof comp === "object") {
+      const a = askedOf(comp);
+      judged = `${a.grammars.length === 3 ? "legacy, u and v" : a.grammars.map(g => GRAMMAR[g]).join(" and ")}` + (a.unicode ? `; Unicode ${a.unicode}` : "");
+    }
+    body += `<tr><th scope="row">${esc(e.name)}${how}</th><td class="ver">${esc(e.versions.join(", "))}</td><td class="ver">${esc(judged)}</td>` +
       `<td class="rows">${e.rows.map(r => `<span>${esc(r)}</span>`).join("")}</td><td>${pkg}</td><td>${src}</td></tr>`;
   }
   document.getElementById("engines-table").innerHTML =
-    `<thead><tr><th scope="col">${esc(V.impl.charAt(0).toUpperCase() + V.impl.slice(1))}</th><th scope="col">Version</th><th scope="col">Rows</th>` +
+    `<thead><tr><th scope="col">${esc(V.impl.charAt(0).toUpperCase() + V.impl.slice(1))}</th><th scope="col">Version</th><th scope="col">ECMA-262</th><th scope="col">Rows</th>` +
     `<th scope="col">Package</th><th scope="col">Source</th></tr></thead><tbody>${body}</tbody>`;
 }
 
