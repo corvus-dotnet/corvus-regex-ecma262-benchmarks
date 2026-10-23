@@ -179,7 +179,10 @@ def page_text(here, test_data):
         "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data: its right answers over "
         "every answer the data asks in the encodings the engine answers in, counted by the data's own rule "
         "(tools/answers.py), so that an answer its runner did not ask counts against it as a wrong one does. An engine "
-        "with one encoding is a share of that encoding's answers, and says which. The counts are in its tooltip. Counts "
+        "with one encoding is a share of that encoding's answers, and says which. So is an engine that implements only "
+        "some of the three grammars (u, v and the legacy one without either), and one with another version of Unicode "
+        "than the data's (whose answers are V8's), which is judged by the answers of its version: the list of engines "
+        "gives each engine's grammars and version. The counts are in its tooltip. Counts "
         "worked out at an earlier commit of the data (for an engine too slow to judge every night) are a share of what "
         "that commit asks, and say which commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
     )
