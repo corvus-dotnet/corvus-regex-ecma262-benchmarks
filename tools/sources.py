@@ -37,7 +37,8 @@
         tonight. Each source's limit (timeoutMinutes) covers its pull and its run; a container still running at its
         limit is killed and removed before the next source starts. With --budget-minutes, no source runs past that
         many minutes from the start: each is given the less of its own limit and the time left, and one that would
-        start with less than 10 minutes left is recorded as not run, with the minutes there were. Counts a
+        start with less than 10 minutes left is recorded as not run, with the minutes there were. Each image is removed
+        once its source has run, and the free disk space is logged before each pull. Counts a
         source made at another commit of the data (an engine's compliance with a dataCommit), or for another version
         of Unicode (one with a unicode), are judged against what was asked of them: the answers of each such commit
         and version are counted into runs.json's testData.answersAt, those of every overlay the data has before the
@@ -185,6 +186,15 @@ def docker(*arguments, timeout=None, quiet=False):
     except FileNotFoundError:
         log(f"{ENGINE} is not installed")
         return 127
+
+
+def disk():
+    """Logs the free space where images are kept: ten images are some 6 GB compressed, and a pull that finds the disk
+    full fails as if the image were not there."""
+    paths = [p for p in ("/var/lib/docker", "/") if os.path.exists(p)]
+    out = subprocess.run(["df", "-h", *paths], capture_output=True, text=True).stdout.strip()
+    for line in out.splitlines():
+        log(f"disk: {line}")
 
 
 def stop(name):
@@ -381,6 +391,7 @@ def run(args):
                 record["error"] = f"its releases could not be read ({e})"
                 log(f"{sid}: {record['error']}")
                 continue
+        disk()
         tag = pullable(image, tags, timeout=max(1, remaining()))
         if not tag:
             record["error"] = f"no release of its image {image} could be pulled ({', '.join(tags[:5]) or 'latest'})"
@@ -436,6 +447,11 @@ def run(args):
             record["file"] = data
             if runs.get("testData"):
                 answers_at(runs, asked(data, pin, runs["testData"].get("unicode")), pin, work, data_dir, tried)
+        # Its image is not needed again tonight: the room it takes is the next source's.
+        try:
+            docker("image", "rm", f"{image}:{tag}", timeout=300, quiet=True)
+        except subprocess.TimeoutExpired:
+            log(f"{sid}: its image could not be removed")
     runs["finished"] = now()
     save()
 
