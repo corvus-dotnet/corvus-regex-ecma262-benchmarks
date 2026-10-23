@@ -354,7 +354,8 @@ at the tag of its repository's newest GitHub release whose image is published. T
    - `ref` is `latest-release`: the tag of the repository's newest release of either kind whose image can be
      pulled (a release whose image is not published yet gives way to the one before it), or `latest` if the
      repository has no release at all.
-   - `timeoutMinutes` (optional, default 150) bounds the source's run.
+   - `timeoutMinutes` (optional, default 150) bounds the source's pull and run together. A container still running
+     then is killed and removed, and the source is shown as not run that night.
    - `"v8": true` marks the one source whose V8 figures the page shows.
 
    One repository can provide two sources, each with its own image. The Rust crate and its C library are the sources

@@ -9,7 +9,9 @@
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
 # here beyond Python and Docker. Every image is given the ECMA-262 test data at the commit sources.json pins (testData),
 # mounted at /data, so every engine of a night is judged on the same data. The images run within 300 minutes in all
-# (--budget-minutes), and runs.json is written after each, so a night cut short still publishes what ran.
+# (--budget-minutes; no source starts with less than 10 minutes left, and a container whose time runs out is killed
+# and removed before the next source starts), and runs.json is written after each, so a night cut short still
+# publishes what ran.
 # tools/merge.py merges the files; a source whose image cannot be pulled or fails is
 # shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
 # the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces

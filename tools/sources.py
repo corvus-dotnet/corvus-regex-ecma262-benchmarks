@@ -26,7 +26,7 @@
         .NET source at the release the workloads command took its workloads from, work/pins.json), and runs it as the
         contract says,
 
-            docker run --rm [-e V8=0] -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
+            docker run --rm --name <name> [-e V8=0] -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
 
         which writes /out/industry.json. When the workloads carry V8's counts (the counts command), every source but
         the one sources.json marks "v8": true runs with V8=0, so that V8 is timed (and run over the data) once a
@@ -34,8 +34,10 @@
         has the sources it ran: per source, the data file (when it has the results-page shape), the image and tag
         that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
-        tonight. With --budget-minutes, no source runs past that many minutes from the start: each is given the less
-        of its own limit and the time left, and one that would start with none left is recorded as not run. Counts a
+        tonight. Each source's limit (timeoutMinutes) covers its pull and its run; a container still running at its
+        limit is killed and removed before the next source starts. With --budget-minutes, no source runs past that
+        many minutes from the start: each is given the less of its own limit and the time left, and one that would
+        start with less than 10 minutes left is recorded as not run, with the minutes there were. Counts a
         source made at another commit of the data (an engine's compliance with a dataCommit), or for another version
         of Unicode (one with a unicode), are judged against what was asked of them: the answers of each such commit
         and version are counted into runs.json's testData.answersAt, those of every overlay the data has before the
@@ -49,6 +51,7 @@ import datetime
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -60,6 +63,8 @@ from merge import check, normalise_compliance, unicode_version  # noqa: E402
 # The container engine: docker on the runner; CONTAINER_ENGINE=podman for a local run on a machine without docker.
 ENGINE = os.environ.get("CONTAINER_ENGINE", "docker")
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+# The least time a source is started with: no image finishes in less, and one stopped part-way is only a failure.
+MIN_SECONDS = 10 * 60
 TEXTS = "https://raw.githubusercontent.com/dotnet/performance/main/src/benchmarks/micro/libraries/System.Text.RegularExpressions/TestData/"
 
 
@@ -173,12 +178,23 @@ def describe_machine():
     return ", ".join(b for b in bits if b)
 
 
-def docker(*arguments, timeout=None):
+def docker(*arguments, timeout=None, quiet=False):
     try:
-        return subprocess.run([ENGINE, *arguments], timeout=timeout).returncode
+        quieted = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if quiet else {}
+        return subprocess.run([ENGINE, *arguments], timeout=timeout, **quieted).returncode
     except FileNotFoundError:
         log(f"{ENGINE} is not installed")
         return 127
+
+
+def stop(name):
+    """Stops and removes the container of that name. Killing the client of `docker run` (which is what a timeout does)
+    leaves its container running under the daemon, where it would load the machine while the next sources are timed."""
+    for command in (["kill", name], ["rm", "-f", name]):
+        try:
+            docker(*command, timeout=120, quiet=True)
+        except subprocess.TimeoutExpired:
+            log(f"{ENGINE} {' '.join(command)} did not finish")
 
 
 def test_data(path):
@@ -300,6 +316,8 @@ def run(args):
     data_dir = os.path.abspath(args.data) if args.data else None
     work = os.path.abspath(args.work)
     tried = set()
+    # Unique to this run, for the containers' names.
+    run_id = os.environ.get("GITHUB_RUN_ID") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
     try:
         with open(pins_path(work), encoding="utf-8") as f:
             pinned = json.load(f)
@@ -337,11 +355,17 @@ def run(args):
         limit = int(source.get("timeoutMinutes", 150)) * 60
         if args.budget_minutes:
             left = args.budget_minutes * 60 - (datetime.datetime.now(datetime.timezone.utc) - start).total_seconds()
-            if left < 60:
-                record["error"] = "the night's time ran out before it could start"
+            if left < MIN_SECONDS:
+                # Too little to finish in: a source started now would only be stopped, and say it failed.
+                record["error"] = f"{max(0, int(left // 60))} minutes of the budget were left"
                 log(f"{sid}: {record['error']}")
                 continue
             limit = int(min(limit, left))
+        # The source's limit covers its pull as well as its run.
+        deadline = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=limit)
+
+        def remaining():
+            return (deadline - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
         if not image:
             record["error"] = "it names no image"
             continue
@@ -357,7 +381,7 @@ def run(args):
                 record["error"] = f"its releases could not be read ({e})"
                 log(f"{sid}: {record['error']}")
                 continue
-        tag = pullable(image, tags)
+        tag = pullable(image, tags, timeout=max(1, remaining()))
         if not tag:
             record["error"] = f"no release of its image {image} could be pulled ({', '.join(tags[:5]) or 'latest'})"
             log(f"{sid}: {record['error']}")
@@ -374,15 +398,21 @@ def run(args):
         record["started"] = now()
         log(f"{sid}: running {image}:{tag}")
         print(f"::group::{sid} {image}:{tag}", flush=True)
+        # A name of its own, so that a container whose time ran out can be found and stopped.
+        name = re.sub(r"[^A-Za-z0-9_.-]", "-", f"bench-{sid}-{run_id}")
         try:
             mounts = ["-v", f"{workloads_file}:/workloads.json:ro", "-v", f"{text_dir}:/texts:ro"]
             if data_dir:
                 mounts += ["-v", f"{data_dir}:/data:ro"]
             # V8 once a night, in the source that sources.json marks: the page shows it from that source alone.
             env = [] if source.get("v8") or not v8_counted else ["-e", "V8=0"]
-            code = docker("run", "--rm", *env, *mounts, "-v", f"{out}:/out", f"{image}:{tag}", timeout=limit)
+            if remaining() <= 0:
+                raise subprocess.TimeoutExpired("pull", limit)
+            code = docker("run", "--rm", "--name", name, *env, *mounts, "-v", f"{out}:/out", f"{image}:{tag}",
+                          timeout=remaining())
         except subprocess.TimeoutExpired:
             code = "timed out"
+            stop(name)
         print("::endgroup::", flush=True)
         record["finished"] = now()
         problem = None
