@@ -95,12 +95,24 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
       run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --data test-data/data --budget-minutes 300 --out out-data
     - name: Fetch the published site
-      # The days already published are kept; the first run finds no branch and starts the list.
+      # The days already published are kept; the first run finds no branch and starts the list. Only a branch that is
+      # not there starts it (git ls-remote exits 2): any other failure to read it fails the step, so a network fault
+      # never publishes a site that has lost every day before tonight.
+      id: previous
       run: |
-        if git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages; then
-          git worktree add --detach previous origin/gh-pages
-        else
+        found=0
+        git ls-remote --exit-code --heads origin gh-pages > /dev/null || found=$?
+        if [ "$found" = 2 ]; then
+          echo "No gh-pages branch yet: this run starts the list of days."
           mkdir previous
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        elif [ "$found" != 0 ]; then
+          echo "::error::The gh-pages branch could not be read (git ls-remote exited $found)."
+          exit 1
+        else
+          git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          git worktree add --detach previous origin/gh-pages
+          echo "exists=true" >> "$GITHUB_OUTPUT"
         fi
     - name: Merge the runs
       if: github.event_name != 'push'
@@ -128,7 +140,14 @@ jobs:
       run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
     - name: Publish to gh-pages
       if: github.ref == 'refs/heads/main'
+      env:
+        PREVIOUS_EXISTS: ${{ steps.previous.outputs.exists }}
       run: |
+        # The branch is replaced whole, so a site built without the days already published would lose them for good.
+        if [ "$PREVIOUS_EXISTS" = true ] && ! ls previous/data/runs/*.json > /dev/null 2>&1; then
+          echo "::error::gh-pages exists but no day of data was read from it; not publishing."
+          exit 1
+        fi
         touch site-out/.nojekyll
         export GIT_DIR="$PWD/.git" GIT_WORK_TREE="$PWD/site-out" GIT_INDEX_FILE="$RUNNER_TEMP/gh-pages.index"
         git add --all
