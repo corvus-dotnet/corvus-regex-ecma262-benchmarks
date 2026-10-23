@@ -283,6 +283,10 @@ def take(source, data, ran, have_v8, pin=None):
         merged["name"] = impl.get("name") or impl["id"]
         merged["group"] = "V8" if v8 else language
         merged["source"] = sid
+        if v8 and merged["name"] == "V8":
+            # Named as every night's V8 row is ("V8 (Node 24)"), whichever source timed it.
+            node = re.search(r"Node v?(\d+)", str(impl.get("version") or ""))
+            merged["name"] = f"V8 (Node {node.group(1)})" if node else "V8"
         try:
             merged["compliance"] = normalise_compliance(impl.get("compliance"), pin)
         except ValueError as e:
@@ -319,7 +323,8 @@ def merge(sources, run_url="", runs=None):
     default_measure = None
     facts, links, notes, unshown = [], [], [], []
     pin = ((runs or {}).get("testData") or {}).get("commit")
-    v8_from, v8_dropped = None, []
+    v8_from, v8_sid, v8_dropped = None, None, []
+    v8_usual = next((s for s in sources if s.get("v8")), None)
     dates = []
     used = 0
     here = []
@@ -371,7 +376,7 @@ def merge(sources, run_url="", runs=None):
         if part["v8Dropped"]:
             v8_dropped.append(language)
         if part["v8"]:
-            v8_from = language
+            v8_from, v8_sid = language, sid
         impls.extend(part["impls"])
         results.update(part["results"])
         if part["date"]:
@@ -389,6 +394,10 @@ def merge(sources, run_url="", runs=None):
         others = sorted(set(v8_dropped))
         dropped = f"; the V8 figures of the {', '.join(others)} run{'s' if len(others) > 1 else ''} are not shown" if others else ""
         method.append(f"<p><b>V8</b> appears once, from the {html.escape(v8_from)} run{html.escape(dropped)}.</p>")
+    if v8_from and v8_usual and v8_sid != v8_usual.get("id"):
+        # V8 came from a source that times it only when the usual one has not (sources.py run).
+        facts.append(["V8", f"timed by the {v8_from} image tonight, since the {v8_usual.get('language')} image, which "
+                            "times it on other nights, gave no V8"])
     if notes:
         method.append("<p><b>Sources skipped this time:</b> " + "; ".join(notes) + ".</p>")
     if unshown:

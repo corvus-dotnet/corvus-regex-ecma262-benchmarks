@@ -310,7 +310,8 @@ It takes these variables:
 
 - `V8=0`: no V8 timings and no V8 run over the test data. Counts are checked against each workload's `v8Count`, and
   the data file has no V8 row. The nightly build sets it for every source except the one `sources.json` marks
-  `"v8": true`.
+  `"v8": true`, and, on a night that source gives no V8, for every source but the next, which times V8 in its place.
+  So every image must still be able to time V8 and run it over the test data when the variable is absent.
 - `JOB=short`: the quick look, for smoke runs.
 - `COUNT_GATE=1`: the count gate alone (see above), for CI.
 
@@ -357,7 +358,8 @@ at the tag of its repository's newest GitHub release whose image is published. T
      repository has no release at all.
    - `timeoutMinutes` (optional, default 150) bounds the source's pull and run together. A container still running
      then is killed and removed, and the source is shown as not run that night.
-   - `"v8": true` marks the one source whose V8 figures the page shows.
+   - `"v8": true` marks the one source that times V8 each night, whose V8 figures the page shows. On a night it
+     gives none, the next source in the list times V8 instead, and the page says so.
 
    One repository can provide two sources, each with its own image. The Rust crate and its C library are the sources
    `rust` and `c`.

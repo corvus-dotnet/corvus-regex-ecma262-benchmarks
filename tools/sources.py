@@ -31,7 +31,8 @@
 
         which writes /out/industry.json. When the workloads carry V8's counts (the counts command), every source but
         the one sources.json marks "v8": true runs with V8=0, so that V8 is timed (and run over the data) once a
-        night rather than in every image: the page shows it once. Writes out-data/runs.json, after each source, so that a run cut short still
+        night rather than in every image: the page shows it once. When that source has had its turn and given no V8
+        (its image failed, or could not be pulled), the next source runs without V8=0, and so on until one gives V8. Writes out-data/runs.json, after each source, so that a run cut short still
         has the sources it ran: per source, the data file (when it has the results-page shape), the image and tag
         that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
@@ -60,7 +61,7 @@ import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from merge import check, normalise_compliance, unicode_version  # noqa: E402
+from merge import check, is_v8, normalise_compliance, unicode_version  # noqa: E402
 
 # The container engine: docker on the runner; CONTAINER_ENGINE=podman for a local run on a machine without docker.
 ENGINE = os.environ.get("CONTAINER_ENGINE", "docker")
@@ -375,7 +376,12 @@ def run(args):
         with open(os.path.join(args.out, "runs.json"), "w", encoding="utf-8") as f:
             json.dump(runs, f, indent=1)
 
-    for source in load_sources(args.sources):
+    listed_sources = load_sources(args.sources)
+    # V8 once a night: the source sources.json marks times it, and when that source has had its turn without giving
+    # V8 (its image failed, or could not be pulled), the next source does, and so on until one has.
+    v8_source = next((s["id"] for s in listed_sources if s.get("v8")), None)
+    v8_delivered = False
+    for source in listed_sources:
         save()
         sid, image = source["id"], source.get("image")
         record = {}
@@ -433,8 +439,11 @@ def run(args):
             mounts = ["-v", f"{workloads_file}:/workloads.json:ro", "-v", f"{text_dir}:/texts:ro"]
             if data_dir:
                 mounts += ["-v", f"{data_dir}:/data:ro"]
-            # V8 once a night, in the source that sources.json marks: the page shows it from that source alone.
-            env = [] if source.get("v8") or not v8_counted else ["-e", "V8=0"]
+            v8_turn = source.get("v8") or v8_source is None or (sid != v8_source and v8_source in runs["sources"])
+            v8_on = not v8_counted or (not v8_delivered and v8_turn)
+            env = [] if v8_on else ["-e", "V8=0"]
+            if v8_on and v8_counted and sid != v8_source:
+                log(f"{sid}: times V8 tonight, since {v8_source or 'no source'} has not")
             if remaining() <= 0:
                 raise subprocess.TimeoutExpired("pull", limit)
             code = docker("run", "--rm", "--name", name, *env, *mounts, "-v", f"{out}:/out", f"{image}:{tag}",
@@ -463,6 +472,11 @@ def run(args):
         else:
             log(f"{sid}: done")
             record["file"] = data
+            with open(data, encoding="utf-8") as f:
+                if any(is_v8(i) for i in json.load(f)["impls"]):
+                    v8_delivered = True
+                    if v8_on:
+                        record["v8"] = True  # this source timed the V8 the page shows
             if runs.get("testData"):
                 answers_at(runs, asked(data, pin, runs["testData"].get("unicode")), pin, work, data_dir, tried)
         # Its image is not needed again tonight: the room it takes is the next source's.

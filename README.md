@@ -105,7 +105,9 @@ ECMA-262 engine that counts otherwise is still an error and another engine's row
 differs. The counts are all or none: when V8 cannot count every workload, no workload carries a count and no image is
 given `V8=0`. The
 page shows V8 once, so the nightly run gives `V8=0` to every source but the one `sources.json` marks `"v8": true` (the
-.NET source); an image that does not know the variable still runs V8, whose rows the merge then leaves out.
+.NET source); when that source has had its turn and given no V8 (its image failed or could not be pulled), the next
+source runs without `V8=0`, and so on until one gives V8, and the page says which image timed it. An image that does
+not know the variable still runs V8, whose rows the merge then leaves out.
 
 ## Adding a source
 
