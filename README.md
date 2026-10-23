@@ -54,14 +54,21 @@ The data shape itself is documented at the top of `site/generate_site.py`. In br
   "vocab": { "impl": "engine", "impls": "engines", "schema": "workload", "schemas": "workloads", "...": "..." },
   "measures": { "time": { "label": "Time", "long": "time per Count", "parts": ["time"] } },
   "impls": [{ "id": "Corvus interpreter", "name": "Corvus interpreter", "group": "Rust", "version": "0.1.0",
-              "compliance": { "right": 22895231, "wrong": 0, "refused": 0, "acceptedInvalid": 0 } }],
+              "compliance": { "right": 26970931, "wrong": 0, "refused": 0, "acceptedInvalid": 0, "limited": 0,
+                              "encodings": ["utf16", "utf8"] } }],
   "schemas": [{ "name": "sherlock: Holmes", "note": "", "meta": [["text", "..."]] }],
   "results": { "Corvus interpreter": { "sherlock: Holmes": { "time": { "median": 1.0, "min": 0.9, "max": 1.1 } } } }
 }
 ```
 
-`compliance` is the engine's result on the ECMA-262 test data: an object of counts, the string `"not ECMA-262"` for
-an engine of another dialect, or `"the oracle of the test data"` for V8. The page shows it beside the engine's name.
+`compliance` is the engine's result on the ECMA-262 test data: an object of counts (`right`, `wrong`, `refused`,
+`acceptedInvalid`, `limited`), with `encodings`, the encodings its runner answers in (`"utf16"`, `"utf8"`), and an
+optional `note`; or the string `"not ECMA-262"` for an engine of another dialect. The page shows it beside the
+engine's name as its right answers over every answer the test data asks in those encodings, which the nightly run
+counts from the pinned data by the data's own rule (`tools/answers.py`, carried in `meta.testData.answers`): an answer
+its runner did not ask counts against it as a wrong one does, so 100% means every answer asked and right. A runner
+that gives no `encodings` has a share of what it asked, which never reads as fully compliant. V8 has its counts like
+any other engine.
 The runner is read from `meta.runner`, or from a fact named `Host` or `Runner`.
 
 How the merge treats a source's data:

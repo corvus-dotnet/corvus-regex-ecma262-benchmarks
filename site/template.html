@@ -422,31 +422,53 @@ function fmtRatio(r, versus = state.baseline !== "best") {
   if (Math.abs(r - 1) < 0.005) return "level";
   return r < 1 ? sig(1 / r) + "× " + better() : sig(r) + "× " + worse();
 }
-// An implementation's compliance (impl.compliance), when the data gives one: the counts on the ECMA-262 test data
-// ({right, wrong, refused, acceptedInvalid}, with a note that says what was judged when not all of it was), or a phrase
-// such as "not ECMA-262" or "the oracle of the test data".
-// Absent, nothing is shown. Returns { short, long, cls } or null.
+// An implementation's compliance (impl.compliance), when the data gives one: its counts on the ECMA-262 test data
+// ({right, wrong, refused, acceptedInvalid, limited}, the encodings it answers in, "utf16" and "utf8", and a note), or a
+// phrase such as "not ECMA-262". The figure is its right answers over every answer the data asks in those encodings
+// (DATA.meta.testData.answers, counted by the data's own rule), so an answer its runner did not ask counts against it as
+// a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's counts,
+// the figure is a share of what its runner asked alone, and never reads 100%. Absent, nothing is shown.
+// Returns { short, long, cls } or null.
+const ANSWERS = (DATA.meta && DATA.meta.testData && DATA.meta.testData.answers) || null;
+const ENCODING = { utf16: "UTF-16", utf8: "UTF-8" };
 function compliance(info) {
   const c = info && info.compliance;
   if (c == null || c === "") return null;
-  if (typeof c === "string") return /oracle/i.test(c) ? { short: "the oracle", long: c, cls: "comp-ok" } : { short: c, long: c, cls: "" };
-  const n = k => Number(c[k] || 0).toLocaleString("en");
-  // The share of the test data answered as the oracle answers: right over every answer judged. Rounded down, so one
-  // failure never reads as 100%; the counts are in the tooltip.
-  const bad = (c.wrong || 0) + (c.refused || 0) + (c.acceptedInvalid || 0) + (c.limited || 0);
-  const total = (c.right || 0) + bad;
-  const pct = total ? Math.floor(((c.right || 0) / total) * 10000) / 100 : 0;
-  const share = bad ? `${pct.toFixed(2)}%` : "100%";
-  const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]].filter(([k]) => c[k]).map(([k, w]) => `, ${n(k)} ${w}`).join("");
-  const long = `ECMA-262 test data: ${share} (${n("right")} right, ${n("wrong")} wrong${extra}, of ${total.toLocaleString("en")} answers)` +
+  if (typeof c === "string") return { short: c, long: c, cls: "" };
+  const n = v => Number(v || 0).toLocaleString("en");
+  const encodings = Array.isArray(c.encodings) ? c.encodings.filter(e => e in ENCODING) : [];
+  let full = ANSWERS && encodings.length ? encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0) : 0;
+  const right = Number(c.right || 0);
+  // Answers given (a refusal and an acceptance of an invalid pattern are verdicts, which open no answers).
+  const answered = right + Number(c.wrong || 0) + Number(c.limited || 0);
+  const bad = Number(c.wrong || 0) + Number(c.refused || 0) + Number(c.acceptedInvalid || 0) + Number(c.limited || 0);
+  // A runner that counts more answers than the data asks does not count by the data's rule: its figure is a share of
+  // what it asked, as for one that does not give its encodings.
+  const mismatch = full > 0 && answered > full;
+  if (mismatch) full = 0;
+  const notAnswered = full ? full - answered : 0;
+  const of = full || right + bad;
+  // Rounded down, so one answer short never reads as 100%.
+  const pct = of ? Math.floor((right / of) * 10000) / 100 : 0;
+  const complete = full > 0 && right === full;
+  const which = encodings.length === 1 ? ` (${ENCODING[encodings[0]]})` : "";
+  // Against the data's count, short of every answer is never 100%; a share of what a runner asked may be.
+  const share = complete || (!full && right === of) ? "100%" : `${(full ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
+  const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]]
+    .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
+  const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
+  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}`
+    : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(encodings.reduce((t, e) => t + Number(ANSWERS[e] || 0), 0))}, so it does not count by the data's rule`
+    : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
+  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})` +
     (c.note ? `. ${c.note}` : "");
-  return bad ? { short: `${share} ECMA-262`, long, cls: "comp-wrong" } : { short: "✓ 100% ECMA-262", long, cls: "comp-ok" };
+  if (complete) return { short: `✓ 100% ECMA-262${which}`, long, cls: "comp-ok" };
+  return { short: full ? `${share} ECMA-262${which}` : `${share} of asked`, long, cls: "comp-wrong" };
 }
-// Fully compliant: the oracle, or counts with nothing wrong, refused or accepted that should not be.
+// Fully compliant: every answer the data asks in its encodings, asked and right.
 function fullyCompliant(info) {
-  const c = info && info.compliance;
-  if (typeof c === "string") return /oracle/i.test(c);
-  return !!c && typeof c === "object" && !(c.wrong || 0) && !(c.refused || 0) && !(c.acceptedInvalid || 0) && !(c.limited || 0);
+  const comp = compliance(info);
+  return !!comp && comp.cls === "comp-ok";
 }
 const HAS_COMPLIANCE = DATA.impls.some(i => i.compliance != null && i.compliance !== "");
 function implLabel(id) { const i = IMPL.get(id); return i ? i.name : id; }

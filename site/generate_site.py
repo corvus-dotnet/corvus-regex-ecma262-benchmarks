@@ -10,8 +10,10 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
         "facts": [["Host", "..."], ["Commit", "..."]],            # shown in the run header, in order
         "links": [{"label": "...", "url": "..."}],                 # optional: related pages, in the run header
         "icon": "favicon.svg", "runner": "...", "defaultMeasure": "time",  # optional
-        "method": "<p>...</p><p>...</p>"                           # the 'How to read this' section, as HTML
-      },
+        "method": "<p>...</p><p>...</p>",                          # the 'How to read this' section, as HTML
+        "testData": {"repo": "...", "commit": "...",               # optional: the test data, and the answers it asks
+                     "answers": {"utf16": n, "utf8": n}}           # in each encoding (tools/answers.py), which the
+      },                                                            # compliance figures are a share of
       "vocab": {                                                    # the words the page uses for its two axes
         "impl": "engine", "impls": "engines", "Impls": "Engines",
         "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
@@ -23,11 +25,13 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
         "allocated": { "label": "Allocated", "long": "bytes allocated", "parts": ["allocated"], "bytes": true }
       },
       "impls": [{ "id": "...", "name": "...", "group": "...", "version": "...",
-                  "compliance": {"right": n, "wrong": n, "refused": n, "acceptedInvalid": n}
-                                | "not ECMA-262" | "the oracle of the test data" }],
+                  "compliance": {"right": n, "wrong": n, "refused": n, "acceptedInvalid": n, "limited": n,
+                                 "encodings": ["utf16", "utf8"], "note": "..."}
+                                | "not ECMA-262" }],
                                                                     # compliance is optional: shown beside the name in
-                                                                    # the Overall rows and the picker; a phrase with
-                                                                    # "oracle" reads "the oracle", any other as it is
+                                                                    # the Overall rows and the picker; its figure is the
+                                                                    # right answers over meta.testData.answers of its
+                                                                    # encodings; a phrase is shown as it is
       "schemas": [{ "name": "...", "note": "...", "meta": [["instances", "333"]], "url": "", "urlLabel": "" }],
       "results": { "<impl id>": { "<schema name>": null | { "<part>": [runs...] | {"median": n, "min": n, "max": n} } } }
     }

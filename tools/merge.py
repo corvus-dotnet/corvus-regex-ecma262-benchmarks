@@ -225,9 +225,11 @@ def merge(sources, run_url="", runs=None):
     method = [
         where,
         "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data, whose answers are "
-        "V8's: the share of the data it answered as V8 does, right over everything judged (the counts are in its "
-        "tooltip), \"the oracle\" for V8, and \"not ECMA-262\" for an engine that implements another "
-        "dialect, whose figures are a reference for speed and not for answers.</p>",
+        "V8's: its right answers over every answer the data asks in the encodings the engine answers in, counted by "
+        "the data's own rule (tools/answers.py), so that an answer its runner did not ask counts against it as a "
+        "wrong one does. An engine with one encoding is a share of that encoding's answers, and says which. The counts "
+        "are in its tooltip. \"Not ECMA-262\" marks an engine that implements another dialect, whose figures are a "
+        "reference for speed and not for answers.</p>",
     ]
     if v8_from:
         others = sorted(set(v8_dropped))
@@ -251,6 +253,9 @@ def merge(sources, run_url="", runs=None):
         "links": links,
         "method": "".join(method),
     }
+    if runs and runs.get("testData"):
+        # The pin of the test data and the answers it asks in each encoding, which the page's compliance figures use.
+        meta["testData"] = runs["testData"]
     if dates:
         meta["date"] = max(dates)[1]
     if run_url:
