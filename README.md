@@ -101,36 +101,14 @@ engine that counts otherwise is still an error and another engine's row is still
 page shows V8 once, so the nightly run gives `V8=0` to every source but the one `sources.json` marks `"v8": true` (the
 .NET source); an image that does not know the variable still runs V8, whose rows the merge then leaves out.
 
-## Registering a source
+## Adding a source
 
-1. In the engine repository, publish the image above (`:latest` from main, and the version tag from each release),
-   with a smoke run of it in the same workflow. The engine repository publishes no page and no results of its own:
-   this site is the one page. The .NET repository is the model: `.github/workflows/harness-image.yml` in
-   [corvus-dotnet/Corvus.Regex.Ecma262](https://github.com/corvus-dotnet/Corvus.Regex.Ecma262).
-2. Add one entry to `sources.json` here:
-
-   ```json
-   { "id": "rust", "language": "Rust", "repo": "corvus-dotnet/corvus-regex-ecma262-rs", "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-rs", "ref": "latest-release" }
-   ```
-
-   `id` is short and unique (it prefixes the implementation ids, and so appears in the page's address);
-   `language` is the group the engines appear under; `image` is the image without
-   a tag; `ref` is `latest-release` (the release's tag, else `latest`), the only policy so far. An optional
-   `timeoutMinutes` (default 150) bounds the run.
-
-   Two sources may come from one repository: the Rust crate and its C library both live in
-   `corvus-dotnet/corvus-regex-ecma262-rs`, as the sources `rust` and `c`, each with its own image, id and language.
-   The repository's latest release is looked up for each, and an image that no release carries yet (a source added
-   after the repository's last release) runs at `:latest` until the next release publishes its tag.
-
-3. Add an entry to `site/engines.json` for each engine the source measures: its name, the rows it covers
-   (`<id>/<name>`, as the merged data has them), how to get it (`package`: a label and a link) and its source. The page
-   lists them at its foot, with the version each run reports. An engine with no entry is listed without links, and the
-   page build says so.
-
-The engine gains its rows on the page at the next nightly build, or from a run started by hand (`workflow_dispatch`).
-A push to `main` here rebuilds the page from the published data, so a change to `site/engines.json` or the page shows
-straight away.
+**[docs/implementing-a-source.md](docs/implementing-a-source.md)** is the guide to implementing a new source: what to
+build (a data-set runner, an Industry harness, a results script, the image and its workflow), how a runner judges the
+ECMA-262 test data and how the page turns its counts into a compliance figure (the rule, the encodings, ill-formed
+UTF-8, checking a runner against `tools/answers.py` and the test data's fuzzer), the constraints on the benchmark (the
+interleaved protocol, the 30 s limit on a figure, the count check against V8 and its CI gate, validation outside what
+is timed), the data file and the image, and registering it in `sources.json` and `site/engines.json`.
 
 ## Running it locally
 
