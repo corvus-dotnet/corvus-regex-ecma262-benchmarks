@@ -1,7 +1,7 @@
 {
   "testData": {
     "repo": "corvus-dotnet/ecma262-regex-test-data",
-    "commit": "2b32a261928e80e830d9db9587c675a336989689"
+    "commit": "766d23da87b14ea5ec06f8f439e3e4bea9ebbe09"
   },
   "sources": [
     {
