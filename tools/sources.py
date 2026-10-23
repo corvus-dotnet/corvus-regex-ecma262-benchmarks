@@ -1,8 +1,9 @@
 """Runs every engine of the manifest on this machine, each from its repository's published container image.
 
     python3 tools/sources.py workloads [--sources sources.json] --work work --workloads workloads.json
-        Clones the .NET source at its latest release into work/dotnet and writes the Industry workloads with its
-        tools/benchmarks/v8/workloads.py: the list comes from one place.
+        Clones the .NET source at its newest release whose image can be pulled into work/dotnet and writes the
+        Industry workloads with its tools/benchmarks/v8/workloads.py: the list comes from one place. The tag is kept in
+        work/pins.json, and the run command pulls the .NET image at it.
 
     python3 tools/sources.py texts --workloads workloads.json --texts DIR
         Downloads each text the workloads name (the Industry texts of dotnet/performance, gzipped, kept as they are)
@@ -20,8 +21,9 @@
         has none, and is not checked.
 
     python3 tools/sources.py run --workloads workloads.json --texts DIR [--data DIR/data] [--budget-minutes N] --out out-data
-        For each source: pulls `<image>:<tag>`, the tag of the repository's newest GitHub release, a package release or
-        a harness release (or `latest` when there is no release or that tag cannot be pulled), and runs it as the
+        For each source: pulls `<image>:<tag>`, the tag of the repository's newest GitHub release whose image can be
+        pulled, a package release or a harness release (`latest` only for a repository with no release at all; the
+        .NET source at the release the workloads command took its workloads from, work/pins.json), and runs it as the
         contract says,
 
             docker run --rm [-e V8=0] -v <workloads.json>:/workloads.json:ro -v <texts dir>:/texts:ro [-v <data>:/data:ro] -v <out>/<id>:/out <image>
@@ -49,6 +51,7 @@ import os
 import platform
 import subprocess
 import sys
+import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -81,30 +84,58 @@ def api(path):
         return json.loads(response.read().decode("utf-8"))
 
 
-def latest_release(repo):
-    """The tag of the repository's newest published release of either kind: a package release, or a harness release
-    (a tag starting harness-), which publishes the harness image alone when only the harness changed. GitHub's "latest"
-    is not used: a harness release is marked not latest, so that the repository's Latest stays its package's."""
-    try:
-        releases = [r for r in api(f"repos/{repo}/releases?per_page=30") if not r.get("draft") and not r.get("prerelease")]
-    except Exception as e:  # the API refused: the image's latest tag is used
-        log(f"{repo}: its releases could not be read ({e})")
-        return None
-    if not releases:  # no release yet: the image's latest tag is used
-        log(f"{repo}: no release yet")
-        return None
-    return max(releases, key=lambda r: r.get("published_at") or "")["tag_name"]
+def releases(repo):
+    """The tags of the repository's published releases of either kind, newest first: package releases, and harness
+    releases (a tag starting harness-), which publish the harness image alone when only the harness changed. GitHub's
+    "latest" is not used: a harness release is marked not latest, so that the repository's Latest stays its package's.
+    Raises when the API cannot be read after three tries."""
+    for attempt in range(3):
+        try:
+            found = [r for r in api(f"repos/{repo}/releases?per_page=30") if not r.get("draft") and not r.get("prerelease")]
+            return [r["tag_name"] for r in sorted(found, key=lambda r: r.get("published_at") or "", reverse=True)]
+        except Exception as e:  # noqa: BLE001 (tried again, then raised)
+            if attempt == 2:
+                raise
+            log(f"{repo}: its releases could not be read ({e}); trying again")
+            time.sleep(10)
+
+
+def pullable(image, tags, timeout=None):
+    """The first of tags whose image pulls, newest first, or None. A release whose image is not published yet (its
+    workflow still building) gives way to the release before it, never to `latest`, which is the image of unreleased
+    work on the default branch; `latest` is pulled only for a repository with no release at all (tags empty)."""
+    for tag in tags or ["latest"]:
+        try:
+            if docker("pull", "--quiet", f"{image}:{tag}", timeout=timeout) == 0:
+                return tag
+        except subprocess.TimeoutExpired:
+            log(f"{image}:{tag}: the pull did not finish in its time")
+            return None
+        log(f"{image}:{tag} could not be pulled")
+    return None
+
+
+def pins_path(work):
+    """Where the workloads command writes the tag it took the workloads from, which the run command pulls that source's
+    image at, so that the image and the workloads come from one release."""
+    return os.path.join(work, "pins.json")
 
 
 def workloads(args):
     source = next((s for s in load_sources(args.sources) if s.get("language") == ".NET"), None)
     if source is None:
         raise SystemExit("sources: the manifest has no .NET source, whose workloads.py writes the workloads")
-    tag = latest_release(source["repo"])
+    tags = releases(source["repo"])
+    # The newest release whose image is published, so that the image the run pulls is the release the workloads come
+    # from; with none pullable, the newest release (the source is then shown as not run, the others still run).
+    tag = (pullable(source["image"], tags) if source.get("image") else None) or (tags[0] if tags else "latest")
     path = os.path.abspath(os.path.join(args.work, source["id"]))
     command = ["git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1"]
-    subprocess.run(command + (["--branch", tag] if tag else []) + [f"https://github.com/{source['repo']}.git", path], check=True)
-    log(f"workloads from {source['repo']} at {tag or 'its default branch'}")
+    branch = [] if tag == "latest" else ["--branch", tag]
+    subprocess.run(command + branch + [f"https://github.com/{source['repo']}.git", path], check=True)
+    log(f"workloads from {source['repo']} at {tag if branch else 'its default branch'}")
+    with open(pins_path(args.work), "w", encoding="utf-8") as f:
+        json.dump({source["id"]: tag}, f)
     with open(args.out, "w", encoding="utf-8") as f:
         subprocess.run([sys.executable, os.path.join(path, "tools", "benchmarks", "v8", "workloads.py"),
                         os.path.join(path, "Solutions", "Corvus.Regex.Ecma262.Benchmarks", "Industry.cs")], check=True, stdout=f)
@@ -148,15 +179,6 @@ def docker(*arguments, timeout=None):
     except FileNotFoundError:
         log(f"{ENGINE} is not installed")
         return 127
-
-
-def pull(image, tag):
-    """Pulls image:tag, or image:latest when that fails; returns the tag pulled, or None."""
-    for candidate in [t for t in (tag, "latest") if t] if tag != "latest" else ["latest"]:
-        if docker("pull", "--quiet", f"{image}:{candidate}") == 0:
-            return candidate
-        log(f"{image}:{candidate} could not be pulled")
-    return None
 
 
 def test_data(path):
@@ -278,6 +300,11 @@ def run(args):
     data_dir = os.path.abspath(args.data) if args.data else None
     work = os.path.abspath(args.work)
     tried = set()
+    try:
+        with open(pins_path(work), encoding="utf-8") as f:
+            pinned = json.load(f)
+    except (OSError, ValueError):
+        pinned = {}
     runs = {"machine": describe_machine(), "started": now(), "sources": {}}
     pin = test_data(args.sources)
     if data_dir and pin:
@@ -321,9 +348,19 @@ def run(args):
         if source.get("ref", "latest-release") != "latest-release":
             record["error"] = f"the ref policy '{source['ref']}' is not known"
             continue
-        tag = pull(image, latest_release(source["repo"]))
+        if sid in pinned:
+            tags = [pinned[sid]]  # the release the workloads were written from
+        else:
+            try:
+                tags = releases(source["repo"])
+            except Exception as e:  # noqa: BLE001
+                record["error"] = f"its releases could not be read ({e})"
+                log(f"{sid}: {record['error']}")
+                continue
+        tag = pullable(image, tags)
         if not tag:
-            record["error"] = f"its image {image} could not be pulled"
+            record["error"] = f"no release of its image {image} could be pulled ({', '.join(tags[:5]) or 'latest'})"
+            log(f"{sid}: {record['error']}")
             continue
         record["image"], record["tag"] = image, tag
         digest = subprocess.run([ENGINE, "image", "inspect", "--format", "{{index .RepoDigests 0}}", f"{image}:{tag}"],

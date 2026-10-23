@@ -5,7 +5,7 @@
 #
 # One job: write the Industry workloads once (the .NET repository's workloads.py, at its newest release) and
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
-# its newest release (or latest) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
+# its newest release whose image can be pulled (latest only for a repository with no release) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
 # here beyond Python and Docker. Every image is given the ECMA-262 test data at the commit sources.json pins (testData),
 # mounted at /data, so every engine of a night is judged on the same data. The images run within 300 minutes in all
@@ -44,9 +44,13 @@ jobs:
       with:
         # The Node of the harness images, whose V8 counts each workload once for every image (the counts step).
         node-version: '24.22.0'
+    - name: Sign in to the container registry
+      if: github.event_name != 'push'
+      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
     - name: Write the workloads
-      # The list comes from one place, the .NET repository's workloads.py, at its newest release. Without it no image
-      # can run, and every source is shown as not run.
+      # The list comes from one place, the .NET repository's workloads.py, at its newest release whose image can be
+      # pulled (kept in work/pins.json, so that the .NET image runs at the same release). Without it no image can run,
+      # and every source is shown as not run.
       id: workloads
       if: github.event_name != 'push'
       continue-on-error: true
@@ -78,9 +82,6 @@ jobs:
       if: steps.texts.outcome == 'success'
       continue-on-error: true
       run: python3 tools/sources.py data --data test-data
-    - name: Sign in to the container registry
-      if: steps.data.outcome == 'success'
-      run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
     - name: Run every source's image
       if: steps.data.outcome == 'success'
       continue-on-error: true

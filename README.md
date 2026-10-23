@@ -18,12 +18,14 @@ image, one after another, so every figure on the page was measured on one machin
 beyond Python and Docker:
 
 1. `tools/sources.py workloads` writes the Industry workloads once to `workloads.json`, with the .NET repository's
-   `tools/benchmarks/v8/workloads.py` at its newest release (the list comes from one place).
+   `tools/benchmarks/v8/workloads.py` at its newest release whose image can be pulled (the list comes from one
+   place; the .NET image then runs at that same release).
 2. `tools/sources.py texts` downloads their texts once (dotnet/performance's gzipped files, the URLs of the .NET
    repository's `Inputs.cs`) into `~/.local/share/corvus-regex-benchmarks/`, cached between runs.
-3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's newest GitHub release, a package
-   release or a harness release (or `latest` when there is no release or that tag cannot be pulled), and runs it as
-   the image contract below says, into `out-data/<id>/`, one source after another.
+3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's newest GitHub release whose
+   image can be pulled, a package release or a harness release (a release whose image is not published yet gives way
+   to the one before it; `latest` only for a repository with no release at all), and runs it as the image contract
+   below says, into `out-data/<id>/`, one source after another.
 4. `tools/merge.py` merges the data files the images wrote (implementations grouped by language, V8 once, every
    workload matched by id); `tools/build_site.py` writes the page (with `site/generate_site.py` and
    `site/template.html`) and the data of the day, and the job publishes them to this repository's `gh-pages`.

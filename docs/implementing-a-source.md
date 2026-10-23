@@ -327,7 +327,7 @@ The workflow (`.github/workflows/harness-image.yml`) runs on pull requests, on `
 ### Releases
 
 A change to a harness reaches the page only once it is released, because the nightly build takes each source's image
-at the tag of its repository's newest GitHub release. There are two kinds of release.
+at the tag of its repository's newest GitHub release whose image is published. There are two kinds of release.
 
 - **A package release** (`v<version>`, or the version alone where the package manager reads tags that way) publishes
   the engine or binding to its package registry and the harness image. Every package publish workflow checks that the
@@ -351,8 +351,9 @@ at the tag of its repository's newest GitHub release. There are two kinds of rel
    - `language` is the group the engines appear under.
    - `repo` is the GitHub repository whose releases tag the image.
    - `image` is the image without a tag.
-   - `ref` is `latest-release`: the tag of the repository's newest release of either kind, or `latest` if it has
-     none.
+   - `ref` is `latest-release`: the tag of the repository's newest release of either kind whose image can be
+     pulled (a release whose image is not published yet gives way to the one before it), or `latest` if the
+     repository has no release at all.
    - `timeoutMinutes` (optional, default 150) bounds the source's run.
    - `"v8": true` marks the one source whose V8 figures the page shows.
 
