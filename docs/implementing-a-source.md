@@ -290,8 +290,9 @@ The image writes one data file, `/out/industry.json`, in the page's shape, which
   Never use `null` for a failure whose reason the harness knows.
 
 A file whose parts, ids, names, versions, compliance or date are not of these kinds is not merged: the source is
-shown as not run that night, with the reason. When the nightly build merges the sources, it prefixes every engine id with the source id, groups engines by language,
-shows V8 once, matches workloads by name, and dates the page by its newest source.
+shown as not run that night, with the reason. When the nightly build merges the sources, it prefixes every engine id
+with the source id, groups engines by language, shows V8 once, matches workloads by name, and dates the page by its
+newest source.
 
 ## The image
 
