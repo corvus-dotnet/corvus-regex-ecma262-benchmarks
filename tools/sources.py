@@ -17,8 +17,9 @@
     python3 tools/sources.py counts [--work DIR] --workloads workloads.json --texts DIR
         Counts each workload under V8 once, with the industry.mjs of the .NET repository the workloads came from (in
         DIR, as the workloads command left it), and writes each count into workloads.json as "v8Count". An image run
-        with V8=0 checks its engines' counts against these instead of timing V8 itself; a workload V8 cannot count
-        has none, and is not checked.
+        with V8=0 checks its engines' counts against these instead of timing V8 itself. The counts are all or none: if
+        V8 cannot count a workload (an error, or no figure within 600 s), the workloads that failed are logged, no
+        workload carries a count, and every image times V8 itself.
 
     python3 tools/sources.py run --workloads workloads.json --texts DIR [--data DIR/data] [--budget-minutes N] --out out-data
         For each source: pulls `<image>:<tag>`, the tag of the repository's newest GitHub release whose image can be
@@ -301,28 +302,45 @@ def counts(args):
     with open(path, encoding="utf-8") as f:
         all_workloads = json.load(f)
     env = dict(os.environ, CORVUS_REGEX_TEXTS=os.path.abspath(args.texts))
-    counted = 0
+    uncounted = []
     for k, w in enumerate(all_workloads):
+        w.pop("v8Count", None)
         # One turn of the interleaved run, as each image's harness starts it, timed as briefly as it allows: its count.
-        out = subprocess.run(["node", script, "--one", path, str(k), "0.001", "1"], capture_output=True, text=True,
-                             env=env, timeout=600)
-        lines = out.stdout.strip().splitlines()
-        figure = json.loads(lines[-1]) if out.returncode == 0 and lines else {}
-        if "count" in figure and "error" not in figure:
+        try:
+            out = subprocess.run(["node", script, "--one", path, str(k), "0.001", "1"], capture_output=True, text=True,
+                                 env=env, timeout=600)
+            lines = out.stdout.strip().splitlines()
+            figure = json.loads(lines[-1]) if out.returncode == 0 and lines else {}
+            why = out.stderr.strip() or (figure.get("error") if isinstance(figure, dict) else None) or "no figure"
+        except subprocess.TimeoutExpired:
+            figure, why = {}, "it did not finish in 600 s"
+        except ValueError as e:
+            figure, why = {}, f"its figure is not JSON ({e})"
+        if isinstance(figure, dict) and "count" in figure and "error" not in figure:
             w["v8Count"] = figure["count"]
-            counted += 1
         else:
-            log(f"V8 does not count {w['id']}: {(out.stderr.strip() or figure.get('error') or 'no figure')[:200]}")
+            uncounted.append(w["id"])
+            log(f"V8 does not count {w['id']}: {why[:200]}")
+    if uncounted:
+        # A part of the counts is never handed out: an image given V8=0 would leave the uncounted workloads unchecked.
+        # Without them every image times V8 itself, as before the counts, and the page shows V8 once.
+        for w in all_workloads:
+            w.pop("v8Count", None)
+        log(f"V8 did not count {len(uncounted)} of {len(all_workloads)} workloads ({'; '.join(uncounted)}), so no "
+            f"workload carries a count and every image times V8")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(all_workloads, f, ensure_ascii=False, indent=1)
-    log(f"V8's count of {counted} of {len(all_workloads)} workloads -> {path}")
+    if not uncounted:
+        log(f"V8's count of all {len(all_workloads)} workloads -> {path}")
 
 
 def run(args):
     os.makedirs(args.out, exist_ok=True)
     workloads_file, text_dir = os.path.abspath(args.workloads), os.path.abspath(args.texts)
     with open(workloads_file, encoding="utf-8") as f:
-        v8_counted = any("v8Count" in w for w in json.load(f))
+        listed = json.load(f)
+    # Every workload carries V8's count, or the images time V8 themselves (the counts command hands out all or none).
+    v8_counted = bool(listed) and all("v8Count" in w for w in listed)
     data_dir = os.path.abspath(args.data) if args.data else None
     work = os.path.abspath(args.work)
     tried = set()

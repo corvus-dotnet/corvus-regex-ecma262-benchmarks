@@ -73,10 +73,12 @@ jobs:
       run: python3 tools/sources.py texts --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
     - name: Count each workload under V8
       # Once for every image: an image run with V8=0 checks its engines' counts against these instead of timing V8.
-      # Without them, every image times V8 as before.
+      # All or none: without a count for every workload, every image times V8 as before. The limit keeps the step from
+      # eating into the time the images need.
       id: counts
       if: steps.texts.outcome == 'success'
       continue-on-error: true
+      timeout-minutes: 15
       run: python3 tools/sources.py counts --work work --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks
     - name: Fetch the test data
       # At the commit sources.json pins, for every image.

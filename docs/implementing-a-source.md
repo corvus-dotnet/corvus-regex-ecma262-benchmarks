@@ -240,7 +240,8 @@ A harness must keep to these rules.
 
 V8 is the reference. The harness compares every engine's count on every workload with V8's count. That is either from
 the harness's own V8 run or, with `V8=0`, the workload's `v8Count`, which the nightly build works out once and writes
-into the workloads.
+into the workloads. The nightly build writes a count into every workload or into none, and gives no image `V8=0`
+without them, so a harness given `V8=0` always has a count to check against.
 
 If an ECMA-262 engine's count differs, it gets no figure on that workload. Instead it gets the error
 `counted N where V8 counts M`, which the data file carries as `{"wrongCount": {"counted": N, "v8": M}}`. The page shows
