@@ -33,7 +33,8 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
                                                                     # right answers over meta.testData.answers of its
                                                                     # encodings; a phrase is shown as it is
       "schemas": [{ "name": "...", "note": "...", "meta": [["instances", "333"]], "url": "", "urlLabel": "" }],
-      "results": { "<impl id>": { "<schema name>": null | { "<part>": [runs...] | {"median": n, "min": n, "max": n} } } }
+      "results": { "<impl id>": { "<schema name>": null | {"limit": n}
+                                                 | { "<part>": [runs...] | {"median": n, "min": n, "max": n} } } }
     }
 
 With --engines (a JSON file: {"engines": [{"name": "...", "impls": ["<impl id>", ...], "package": {"label": "...",
@@ -42,6 +43,8 @@ and where it comes from, at its foot. An impl that no entry names is listed alon
 says so.
 
 A result of null is a failure (the implementation did not complete the schema); an absent entry was not run. A
+result of {"limit": n} is a figure the harness stopped at its limit of n seconds: the page shows "> n s", the engine
+did not produce a result within n seconds. A
 part is either every run's value, in nanoseconds (or the unit the measure says), or a summary of it. Parts of a
 measure are summed, so "parse + warm" is a measure with two parts.
 

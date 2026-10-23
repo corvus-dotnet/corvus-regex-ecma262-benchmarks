@@ -230,6 +230,9 @@ def merge(sources, run_url="", runs=None):
         "wrong one does. An engine with one encoding is a share of that encoding's answers, and says which. The counts "
         "are in its tooltip. \"Not ECMA-262\" marks an engine that implements another dialect, whose figures are a "
         "reference for speed and not for answers.</p>",
+        "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
+        "figure that has not finished in 30 s and does not run it again in the workload's later rounds, so such a "
+        "cell has no figure, and the engine is not ranked on that workload.</p>",
     ]
     if v8_from:
         others = sorted(set(v8_dropped))

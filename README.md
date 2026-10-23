@@ -54,7 +54,7 @@ The data shape itself is documented at the top of `site/generate_site.py`. In br
   "vocab": { "impl": "engine", "impls": "engines", "schema": "workload", "schemas": "workloads", "...": "..." },
   "measures": { "time": { "label": "Time", "long": "time per Count", "parts": ["time"] } },
   "impls": [{ "id": "Corvus interpreter", "name": "Corvus interpreter", "group": "Rust", "version": "0.1.0",
-              "compliance": { "right": 26970931, "wrong": 0, "refused": 0, "acceptedInvalid": 0, "limited": 0,
+              "compliance": { "right": 26950829, "wrong": 0, "refused": 0, "acceptedInvalid": 0, "limited": 0,
                               "encodings": ["utf16", "utf8"] } }],
   "schemas": [{ "name": "sherlock: Holmes", "note": "", "meta": [["text", "..."]] }],
   "results": { "Corvus interpreter": { "sherlock: Holmes": { "time": { "median": 1.0, "min": 0.9, "max": 1.1 } } } }

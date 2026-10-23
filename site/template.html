@@ -141,6 +141,7 @@ table.matrix { border-collapse: separate; border-spacing: 2px; font-family: var(
 .matrix td { min-width: 40px; height: 24px; text-align: center; border-radius: 3px; padding: 0 3px; cursor: default; }
 .matrix td.fail { background: repeating-linear-gradient(45deg, var(--fail-a) 0 3px, var(--fail-b) 3px 6px); color: var(--muted); }
 .matrix td.miss { color: var(--muted); }
+.matrix td.stop { color: var(--muted); font-size: 0.85em; white-space: nowrap; }
 .matrix tr.current th { color: var(--accent); }
 /* Phones: the workload column is capped (the full name is the row's title) so the cells sit beside it rather than
    off-screen, the rotated headers are shorter, and a section header's picker takes the line's width. */
@@ -336,6 +337,8 @@ function measure(impl, schema, metric = state.metric) {
   let out;
   if (r === undefined) out = { state: "missing" };
   else if (r === null) out = { state: "failed" };
+  // A figure stopped at the harness's limit: the engine did not produce a result within that many seconds.
+  else if (r.limit != null) out = { state: "stopped", limit: r.limit };
   else {
     // A part is either the runs of a measurement (an array) or its summary ({median, min, max}); parts are summed.
     const parts = METRICS[metric].parts;
@@ -373,16 +376,21 @@ function ratio(impl, schema) {
   const b = baseValue(schema);
   return m.state === "ok" && !Number.isNaN(b) ? div(m.median, b) : NaN;
 }
+// The words for a figure stopped at the harness's limit.
+function stoppedText(m) {
+  return `did not produce a result within ${m.limit} s`;
+}
 function geomean(xs) {
   return xs.length ? Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length) : NaN;
 }
 function summarise(impl) {
   const rs = [];
-  let failed = 0, missing = 0, best = 0;
+  let failed = 0, missing = 0, stopped = 0, best = 0;
   for (const s of DATA.schemas) {
     const m = measure(impl, s.name);
     if (m.state === "failed") failed++;
     else if (m.state === "missing") missing++;
+    else if (m.state === "stopped") stopped++;
     const r = ratio(impl, s.name);
     if (Number.isFinite(r)) rs.push(r);
     if (m.state === "ok") {
@@ -394,7 +402,7 @@ function summarise(impl) {
       if (lowest && state.selected.has(impl)) best++;
     }
   }
-  return { impl, g: geomean(rs), n: rs.length, failed, missing, best };
+  return { impl, g: geomean(rs), n: rs.length, failed, missing, stopped, best };
 }
 function ranked() {
   return [...state.selected].map(summarise).sort((x, y) =>
@@ -676,7 +684,7 @@ function renderBoard() {
       svg.append(svgEl("text", { x: x0, y: cy + 4, class: "val", "pointer-events": "none" }, `no ${V.schema} completed`));
     }
     if (covW) {
-      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing}/${NS}`);
+      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing - r.stopped}/${NS}`);
       if (r.failed) cov.setAttribute("style", "fill: var(--slower)");
       svg.append(cov);
     }
@@ -708,7 +716,7 @@ function boardTip(id) {
       [`${V.Schemas} compared`, `${s.n} of ${NS}`],
       ["Fastest on", `${s.best} ${s.best === 1 ? V.schema : V.schemas}`],
       ["Failed", String(s.failed)],
-    ].concat(s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
+    ].concat(s.stopped ? [["No result within the limit", String(s.stopped)]] : [], s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
 }
 
 /* ---------- matrix ---------- */
@@ -737,6 +745,7 @@ function renderMatrix() {
       const m = measure(id, s.name), key = esc(id + "|" + s.name);
       if (m.state === "failed") { body += `<td class="fail" data-tip="${key}">✕</td>`; continue; }
       if (m.state === "missing") { body += `<td class="miss" data-tip="${key}">·</td>`; continue; }
+      if (m.state === "stopped") { body += `<td class="stop" data-tip="${key}">&gt; ${m.limit} s</td>`; continue; }
       const r = ratio(id, s.name);
       const c = Number.isFinite(r) ? ratioColour(r) : { css: "transparent", L: 1 };
       const txt = state.cells === "value" ? fmtValue(m.median).replace(" ", " ") : fmtRatioShort(r);
@@ -756,7 +765,7 @@ function renderMatrix() {
     `<span class="ramp"><span>${leftLab}</span><i style="background:linear-gradient(90deg,${g.map(c => c.css).join(",")})"></i><span>${state.baseline === "best" ? "64×+" : span + "× " + worse()}</span></span>` +
     `<span>middle: ${midLab}</span>` +
     `<span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--fail-a) 0 3px,var(--fail-b) 3px 6px);border:1px solid var(--line)"></i>failed</span>` +
-    `<span>· not run</span><span>Click a ${V.schema} for its detail.</span>`;
+    `<span>· not run</span><span>&gt; 30 s: did not produce a result within 30 s</span><span>Click a ${V.schema} for its detail.</span>`;
 }
 function matrixTip(key) {
   // A workload's name can hold a | (a regular expression's alternation); an implementation's id never does.
@@ -765,6 +774,7 @@ function matrixTip(key) {
   let rows;
   if (m.state === "failed") rows = [["Result", V.failed]];
   else if (m.state === "missing") rows = [["Result", "not run"]];
+  else if (m.state === "stopped") rows = [["Result", stoppedText(m)]];
   else rows = [
     [V.centre, fmtValue(m.median)],
     [V.spread, `${fmtValue(m.min)} – ${fmtValue(m.max)}`],
@@ -819,7 +829,7 @@ function renderSchema() {
       if (o.id === ref) lab.setAttribute("style", "fill: var(--accent); font-weight: 600");
       svg.append(lab);
       if (o.m.state !== "ok") {
-        svg.append(svgEl("text", { x: x0 + 4, y: cy + 4, class: "val", style: "fill: var(--muted)", "pointer-events": "none" }, o.m.state === "failed" ? V.failed : "not run"));
+        svg.append(svgEl("text", { x: x0 + 4, y: cy + 4, class: "val", style: "fill: var(--muted)", "pointer-events": "none" }, o.m.state === "failed" ? V.failed : o.m.state === "stopped" ? stoppedText(o.m) : "not run"));
         return;
       }
       const xo = x(origin), xm = x(o.m.median);
@@ -845,7 +855,7 @@ function schemaTip(id) {
   const m = measure(id, state.schema);
   const rows = m.state === "ok"
     ? [[V.centre, fmtValue(m.median)], m.runs ? ["Runs", m.runs.map(v => fmtValue(v)).join(", ")] : [V.spread, `${fmtValue(m.min)} – ${fmtValue(m.max)}`], [state.baseline === "best" ? "Against the fastest" : "Against " + implLabel(state.baseline), fmtRatio(ratio(id, state.schema))]]
-    : [["Result", m.state === "failed" ? V.failed : "not run"]];
+    : [["Result", m.state === "failed" ? V.failed : m.state === "stopped" ? stoppedText(m) : "not run"]];
   return `<div class="t-h">${esc(implLabel(id))}</div><div class="t-s">${esc(state.schema)} · ${esc(METRICS[state.metric].long)}</div>` + tipRows(rows);
 }
 
