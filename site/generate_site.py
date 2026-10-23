@@ -12,8 +12,10 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
         "icon": "favicon.svg", "runner": "...", "defaultMeasure": "time",  # optional
         "method": "<p>...</p><p>...</p>",                          # the 'How to read this' section, as HTML
         "testData": {"repo": "...", "commit": "...",               # optional: the test data, and the answers it asks
-                     "answers": {"utf16": n, "utf8": n}}           # in each encoding (tools/answers.py), which the
-      },                                                            # compliance figures are a share of
+                     "answers": {"utf16": n, "utf8": n},           # in each encoding (tools/answers.py), which the
+                     "answersAt": {"<commit>": {"utf16": n,        # compliance figures are a share of; answersAt, the
+                                                "utf8": n}}}       # same at each other commit some counts were made at
+      },
       "vocab": {                                                    # the words the page uses for its two axes
         "impl": "engine", "impls": "engines", "Impls": "Engines",
         "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
@@ -26,12 +28,15 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
       },
       "impls": [{ "id": "...", "name": "...", "group": "...", "version": "...",
                   "compliance": {"right": n, "wrong": n, "refused": n, "acceptedInvalid": n, "limited": n,
-                                 "encodings": ["utf16", "utf8"], "note": "..."}
+                                 "encodings": ["utf16", "utf8"], "dataCommit": "...", "note": "..."}
                                 | "not ECMA-262" }],
                                                                     # compliance is optional: shown beside the name in
                                                                     # the Overall rows and the picker; its figure is the
                                                                     # right answers over meta.testData.answers of its
-                                                                    # encodings; a phrase is shown as it is
+                                                                    # encodings; dataCommit, when the counts were made
+                                                                    # at another commit of the data (checked in beside
+                                                                    # a harness), makes it a share of answersAt[commit]
+                                                                    # and says so; a phrase is shown as it is
       "schemas": [{ "name": "...", "note": "...", "meta": [["instances", "333"]], "url": "", "urlLabel": "" }],
       "results": { "<impl id>": { "<schema name>": null | {"limit": n} | {"wrongCount": {"counted": n, "v8": n}}
                                                  | {"error": "..."}
