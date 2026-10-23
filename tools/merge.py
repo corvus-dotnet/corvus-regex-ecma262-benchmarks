@@ -51,7 +51,7 @@ LEDE_HERE = "Every engine ran on this runner in this hour, in one job, so a figu
 DEFAULT_VOCAB = {
     "impl": "engine", "impls": "engines", "Impls": "Engines",
     "schema": "workload", "schemas": "workloads", "Schema": "Workload", "Schemas": "Workloads",
-    "failed": "did not run", "centre": "Mean", "spread": "StdDev",
+    "failed": "failed", "centre": "Mean", "spread": "StdDev",
     "barLegend": "mean of the run", "whiskerLegend": "whisker: one standard deviation",
 }
 
@@ -233,6 +233,10 @@ def merge(sources, run_url="", runs=None):
         "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
         "figure that has not finished in 30 s and does not run it again in the workload's later rounds, so such a "
         "cell has no figure, and the engine is not ranked on that workload.</p>",
+        "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
+        "a wrong answer. An ECMA-262 engine with one has no figure there, and is not shown as fully compliant beside "
+        "its name whatever its share of the test data. A cell marked failed says, in its tooltip, what the harness "
+        "reported.</p>",
     ]
     if v8_from:
         others = sorted(set(v8_dropped))
