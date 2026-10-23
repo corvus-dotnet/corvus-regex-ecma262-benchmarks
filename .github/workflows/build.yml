@@ -94,6 +94,17 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: python3 tools/sources.py run --workloads workloads.json --texts ~/.local/share/corvus-regex-benchmarks --data test-data/data --budget-minutes 300 --out out-data
+    - name: Keep the run
+      # Before the merge, and whatever happened before it, so that what each image wrote is kept on the nights the
+      # merge or the publish fails, which are the nights it is needed.
+      if: always() && github.event_name != 'push'
+      uses: actions/upload-artifact@v4
+      with:
+        name: runs-${{ github.run_id }}
+        if-no-files-found: ignore
+        path: |
+          out-data
+          workloads.json
     - name: Fetch the published site
       # The days already published are kept; the first run finds no branch and starts the list. Only a branch that is
       # not there starts it (git ls-remote exits 2): any other failure to read it fails the step, so a network fault
@@ -128,14 +139,6 @@ jobs:
       run: |
         mkdir -p out-data
         python3 tools/merge.py --restate previous/data/latest.json --out out-data/latest.json
-    - name: Keep the run
-      if: github.event_name != 'push'
-      uses: actions/upload-artifact@v4
-      with:
-        name: runs-${{ github.run_id }}
-        path: |
-          out-data
-          workloads.json
     - name: Build the site
       run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
     - name: Publish to gh-pages
