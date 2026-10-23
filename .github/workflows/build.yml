@@ -14,8 +14,8 @@
 # publishes what ran.
 # tools/merge.py merges the files; a source whose image cannot be pulled or fails is
 # shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
-# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day, in one commit that replaces
-# the branch.
+# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day (the day of the run, from the
+# data's date; a push writes none), in one commit that replaces the branch.
 name: build
 
 on:
@@ -140,7 +140,8 @@ jobs:
         mkdir -p out-data
         python3 tools/merge.py --restate previous/data/latest.json --out out-data/latest.json
     - name: Build the site
-      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out
+      # A push ran no image, so it writes no day file: the day of the data it builds from is already published.
+      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out ${{ github.event_name == 'push' && '--no-day' || '' }}
     - name: Publish to gh-pages
       if: github.ref == 'refs/heads/main'
       env:

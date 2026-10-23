@@ -6,7 +6,8 @@ Industry workloads of dotnet/performance. Anyone can add an engine; see
 [implementing a source](docs/implementing-a-source.md).
 
 The page is at **https://corvus-oss.org/corvus-regex-ecma262-benchmarks/**, rebuilt every night at 03:30 UTC. The
-merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`.
+merged data is at `data/latest.json` beside it, and every day's data is kept under `data/runs/`, named by the day the
+run measured it (a rebuild of the page after a push to this repository adds no day).
 
 **Every engine runs here.** Figures merged from runs on different runners are not comparable, so this repository's
 nightly workflow runs every engine itself: one job on one runner runs each engine repository's published container
