@@ -108,9 +108,11 @@ Under each grammar, the runner compiles the pattern and compares the engine's ve
 - **What is skipped.** Records and tests marked `v8_deviation` (the data's README lists them under "Where V8 departs
   from ECMA-262"). Nothing else, except what an engine may leave out (see
   [What a runner may leave out](#what-a-runner-may-leave-out)).
-- **No answer is a wrong answer.** Every runner gives each answer 2 seconds, timed from just before the engine is
-  called. An answer that takes longer, or that the engine crashes or hangs in, is one *unanswered* (`limit`). Only that
-  answer: the runner goes on to the next one.
+- **No answer is a wrong answer.** An answer that reaches the runner's limit, or that the engine crashes or hangs in,
+  is one *unanswered* (`limit`). Only that answer: the runner goes on to the next one.
+- **The limit.** We recommend you implement a 2 second timeout, or an equivalent complexity constraint (a limit on the
+  engine's steps or backtracking). The existing runners give each match 2 seconds, through the engine's own timeout
+  where it has one. Runners which exceed this may be excluded completely from the benchmarks.
 
 **Every answer must be asked.** If the engine's interface cannot hold some texts (an R string cannot hold a NUL; a
 Python `str` cannot express a position between the two halves of a pair), the runner needs another form that can, so
@@ -217,8 +219,8 @@ std::regex and SRELL), by the same rule and through the same runner, in whicheve
 with no match limit of its own runs in child processes, each of which reports every answer as it gives it. A watchdog
 thread in the child times each answer from just before the engine is called, and ends the process when one passes 2
 seconds (writing only what takes no lock, since the engine is still in its match). That answer is unanswered, and the
-supervisor starts a new child at the next answer, so the engine gets the same 2 seconds an answer as every other, and
-loses only the answer that did not finish. Where such an engine has no global search, replace or split of its own, the runner writes them over its
+supervisor starts a new child at the next answer, so the engine keeps to the same 2 seconds as the others, and loses
+only the answer that did not finish. Where such an engine has no global search, replace or split of its own, the runner writes them over its
 exec (the `operations` exclusion), and where it has no UTF-8 interface or no mode of a grammar, it says so with the
 `encoding` or `grammar` exclusion.
 
