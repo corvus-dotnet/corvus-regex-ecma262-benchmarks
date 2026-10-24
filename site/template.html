@@ -189,6 +189,12 @@ table.engines { border-collapse: collapse; width: 100%; font-size: 14px; }
 #tip .t-s { color: var(--muted); font-size: 12px; }
 #tip .t-r { display: flex; justify-content: space-between; gap: 14px; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
 #tip .t-r span:first-child { color: var(--ink-2); font-family: var(--font-body); }
+#tip .t-r span:last-child { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+/* A long value (a sentence, such as a compliance) under its label, at the box's width, in the body's font. */
+#tip.t-wide { max-width: min(420px, calc(100vw - 16px)); }
+#tip .t-l { font-size: 12px; margin-top: 2px; }
+#tip .t-l span:first-child { display: block; color: var(--ink-2); }
+#tip .t-l span:last-child { display: block; overflow-wrap: anywhere; line-height: 1.4; }
 @media (prefers-reduced-motion: no-preference) { .seg button, .row-hit { transition: background-color 0.12s, fill 0.12s; } }
 </style>
 
@@ -652,6 +658,7 @@ function ratioColour(r) {
 const tip = document.getElementById("tip");
 function showTip(ev, html) {
   tip.innerHTML = html;
+  tip.classList.toggle("t-wide", tip.querySelector(".t-l") !== null);
   tip.hidden = false;
   const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
   let x = ev.clientX + pad, y = ev.clientY + pad;
@@ -661,7 +668,11 @@ function showTip(ev, html) {
   tip.style.top = Math.max(8, y) + "px";
 }
 function hideTip() { tip.hidden = true; }
-function tipRows(rows) { return rows.map(([k, v]) => `<div class="t-r"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join(""); }
+// A row of the tooltip: a label and a value on one line, or a long value (more than a short figure) under its label.
+const LONG_VALUE = 40;
+function tipRows(rows) {
+  return rows.map(([k, v]) => `<div class="${String(v).length > LONG_VALUE ? "t-l" : "t-r"}"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
+}
 function wireTips(root, build) {
   root.addEventListener("pointermove", ev => {
     const el = ev.target.closest("[data-tip]");
