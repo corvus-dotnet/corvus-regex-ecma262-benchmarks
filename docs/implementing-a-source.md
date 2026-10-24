@@ -113,7 +113,7 @@ data asks, and the page shows that.
 The last line of a runner's output is its counts, in this form (the results script reads it):
 
 ```
-records 122856 (skipped 231 deviations)  right 29289554  wrong 0  refused-valid 0  accepted-invalid 0  limit 0  errors 0  in 7.0s
+records 123601 (skipped 232 deviations)  right 29689063  wrong 0  refused-valid 0  accepted-invalid 0  limit 0  errors 0  in 7.0s
 ```
 
 A runner also writes every case it got wrong, refused, accepted or left unanswered to a file, one per line, which its
