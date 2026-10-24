@@ -141,18 +141,93 @@ def unicode_version(value):
     return f"{int(parts[0])}.{int(parts[1]) if len(parts) > 1 else 0}"
 
 
+ENCODINGS = ("utf16", "utf8")
+GRAMMARS = ("legacy", "unicode", "unicode_sets")
+OPERATIONS = ("global", "sticky", "replace", "split")
+# The one limit on a record for an engine that cannot be stopped in a match (docs/implementing-a-source.md).
+RECORD_LIMIT = 30
+# The kinds of thing a runner may leave out, each shown on the page as a badge of what it leaves out. Whatever else a
+# runner does not ask counts as not answered.
+EXCLUSIONS = ("encoding", "grammar", "unicode", "operations", "record-limit")
+
+
+def strings(value, allowed, what):
+    """A list of distinct strings each of allowed, in allowed's order. Raises ValueError on anything else."""
+    if not isinstance(value, list) or not value or not all(isinstance(v, str) for v in value):
+        raise ValueError(f"{what} is not a list of names")
+    if len(set(value)) != len(value) or not set(value) <= set(allowed):
+        raise ValueError(f"{what} names {', '.join(sorted(set(value) - set(allowed))) or 'a name twice'}, of "
+                         f"{', '.join(allowed)}")
+    return [a for a in allowed if a in value]
+
+
 def normalise_compliance(c, pin=None):
-    """An engine's compliance with its version of Unicode as unicode_version() writes it and its dataCommit as the full
-    commit: a prefix of the night's pin (as the page's facts print it) becomes the pin. Raises ValueError on a version
-    that is not one, or on a dataCommit that is not a full commit and not a prefix of the pin, which could not be
-    fetched to count what it asks. A phrase ("not ECMA-262") or an absent compliance is returned as it is."""
+    """An engine's compliance as the page reads it, from what its runner wrote: the counts, `judge` (`runner`, the
+    runner's address, and `calls`, the calls it makes in each encoding it asks in) and `excludes` (what it leaves out,
+    each of the kinds in EXCLUSIONS), with `dataCommit` for counts checked in beside a harness. To these it adds what
+    the page counts by: `encodings` (those of judge.calls), `grammars` (all but those an exclusion of a grammar leaves
+    out) and `unicode` (that of an exclusion of Unicode, as unicode_version() writes it). A prefix of the night's pin
+    as the dataCommit becomes the pin. Raises ValueError on a compliance that does not keep to this: a kind of
+    exclusion not in EXCLUSIONS, an encoding the calls leave out and no exclusion names (or one named and asked), a
+    record limit other than RECORD_LIMIT, a version that is not one, or a dataCommit that is not a full commit and not
+    a prefix of the pin, which could not be fetched to count what it asks. A phrase ("not ECMA-262") or an absent
+    compliance is returned as it is."""
     if not isinstance(c, dict):
         return c
     c = dict(c)
-    if "unicode" in c:
-        c["unicode"] = unicode_version(c["unicode"])
-        if c["unicode"] is None:
-            del c["unicode"]
+    for key in ("encodings", "grammars", "unicode", "note"):
+        if key in c:
+            raise ValueError(f"the compliance gives '{key}', which a runner says through judge and excludes")
+    judge = c.get("judge")
+    if not isinstance(judge, dict) or not isinstance(judge.get("runner"), str) \
+            or not judge["runner"].startswith("https://"):
+        raise ValueError("the compliance has no judge with the runner's address")
+    calls = judge.get("calls")
+    if not isinstance(calls, dict) or not calls or not set(calls) <= set(ENCODINGS) \
+            or not all(isinstance(v, list) and v and all(isinstance(x, str) and x for x in v) for v in calls.values()):
+        raise ValueError("the judge's calls are not the calls made in each encoding asked")
+    c["judge"] = {"runner": judge["runner"], "calls": {e: list(calls[e]) for e in ENCODINGS if e in calls}}
+    excludes = c.get("excludes", [])
+    if not isinstance(excludes, list) or not all(isinstance(x, dict) for x in excludes):
+        raise ValueError("the compliance's excludes are not a list of exclusions")
+    kinds = [x.get("class") for x in excludes]
+    for kind in kinds:
+        if kind not in EXCLUSIONS:
+            raise ValueError(f"the exclusion '{kind}' is not one of {', '.join(EXCLUSIONS)}")
+    if len(set(kinds)) != len(kinds):
+        raise ValueError("an exclusion is given twice")
+    by = {x["class"]: x for x in excludes}
+    out = []
+    left = [e for e in ENCODINGS if e not in calls]
+    if "encoding" in by:
+        if by["encoding"].get("leaves") not in ENCODINGS or by["encoding"]["leaves"] in calls:
+            raise ValueError("the exclusion of an encoding does not name the encoding the judge has no calls in")
+        out.append({"class": "encoding", "leaves": by["encoding"]["leaves"]})
+    elif left:
+        raise ValueError(f"the judge has no calls in {left[0]}, and no exclusion leaves it out")
+    grammars = list(GRAMMARS)
+    if "grammar" in by:
+        leaves = strings(by["grammar"].get("leaves"), GRAMMARS, "the exclusion of grammars")
+        if len(leaves) == len(GRAMMARS):
+            raise ValueError("the exclusion of grammars leaves out every grammar")
+        grammars = [g for g in GRAMMARS if g not in leaves]
+        out.append({"class": "grammar", "leaves": leaves})
+    if "unicode" in by:
+        version = unicode_version(by["unicode"].get("version"))
+        if version is None:
+            raise ValueError("the exclusion of Unicode names no version")
+        c["unicode"] = version
+        out.append({"class": "unicode", "version": version})
+    if "operations" in by:
+        out.append({"class": "operations",
+                    "leaves": strings(by["operations"].get("leaves"), OPERATIONS, "the exclusion of operations")})
+    if "record-limit" in by:
+        if by["record-limit"].get("seconds") != RECORD_LIMIT:
+            raise ValueError(f"the record limit is not the {RECORD_LIMIT} seconds every runner gives a record")
+        out.append({"class": "record-limit", "seconds": RECORD_LIMIT})
+    c["excludes"] = out
+    c["encodings"] = list(c["judge"]["calls"])
+    c["grammars"] = grammars
     commit = c.get("dataCommit")
     if commit not in (None, ""):
         commit = str(commit).strip().lower()
@@ -239,14 +314,19 @@ def page_text(here, test_data):
     )
     compliance = (
         "<p><b>Compliance</b> beside an engine's name is its result on the ECMA-262 test data: its right answers over "
-        "every answer the data asks in the encodings the engine answers in, counted by the data's own rule "
-        "(tools/answers.py), so that an answer its runner did not ask counts against it as a wrong one does. An engine "
-        "with one encoding is a share of that encoding's answers, and says which. So is an engine that implements only "
-        "some of the three grammars (u, v and the legacy one without either), and one with another version of Unicode "
-        "than the data's (whose answers are V8's), which is judged by the answers of its version: the list of engines "
-        "gives each engine's grammars and version. The counts are in its tooltip. Counts "
-        "worked out at an earlier commit of the data (for an engine too slow to judge every night) are a share of what "
-        "that commit asks, and say which commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
+        "every answer the data asks of it, counted by the data's own rule (tools/answers.py), so that an answer its "
+        "runner did not ask counts against it as a wrong one does. Each test is asked over UTF-16 and over UTF-8, under "
+        "each of the three grammars (u, v and the legacy one without either). Records and tests where V8 departs from "
+        "ECMA-262 are left out for every engine. An engine leaves out nothing else unless it is of one of five kinds, "
+        "each shown as a badge of what it leaves out: <b>no UTF-8</b> (or UTF-16), where the engine has no interface "
+        "in that encoding; <b>no u, v</b> (or another grammar), where it has no such mode; <b>Unicode</b> and a "
+        "version, where its tables are of another version than the data's, so it is judged by that version's answers; "
+        "<b>from exec</b>, where it has no global search, replace or split of its own and the runner writes them over "
+        f"its exec; and <b>{RECORD_LIMIT} s per record</b>, where it cannot be stopped in a match, so it runs in child "
+        f"processes and a record with no answer in {RECORD_LIMIT} s is unanswered. Every other runner gives a match 2 "
+        "s. The tooltip has the counts, the runner and the calls it makes. Counts worked out at an earlier commit of "
+        "the data (for an engine too slow to judge every night) are a share of what that commit asks, and say which "
+        "commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
     )
     stopped = (
         "<p><b>&gt; 30 s</b> in a cell: the engine did not produce a result within 30 s. Every harness stops a "
