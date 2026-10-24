@@ -103,6 +103,7 @@ select { background: var(--surface); border: 1px solid var(--line); border-radiu
 .comp { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
 .comp-ok { color: var(--faster); border-color: currentColor; }
 .comp-wrong { color: var(--slower); border-color: currentColor; }
+.comp-x { border-style: dashed; }
 
 /* Sections */
 main { padding-block: 8px 48px; }
@@ -399,7 +400,7 @@ function resultText(m) {
 // The workloads on which an engine's count of matches differs from V8's.
 function wrongCounts(id) {
   const rows = DATA.results[id] || {};
-  return Object.values(rows).filter(r => r && r.wrongCount).length;
+  return Object.keys(rows).filter(w => rows[w] && rows[w].wrongCount);
 }
 function geomean(xs) {
   return xs.length ? Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length) : NaN;
@@ -453,9 +454,11 @@ function fmtRatio(r, versus = state.baseline !== "best") {
   return r < 1 ? sig(1 / r) + "× " + better() : sig(r) + "× " + worse();
 }
 // An implementation's compliance (impl.compliance), when the data gives one: its counts on the ECMA-262 test data
-// ({right, wrong, refused, acceptedInvalid, limited}), what it was asked (encodings: "utf16" and "utf8"; grammars:
-// "legacy", "unicode" for u and "unicode_sets" for v, all three when absent; unicode: the version of its Unicode
-// Character Database, the data's own when absent) and a note, or a phrase such as "not ECMA-262". The figure is its
+// ({right, wrong, refused, acceptedInvalid, limited}), how it was judged (judge: the runner's address and the calls it
+// makes in each encoding), what it leaves out (excludes, each of the kinds tools/merge.py allows, shown as badges),
+// and what merge.py works out from those (encodings: "utf16" and "utf8"; grammars: "legacy", "unicode" for u and
+// "unicode_sets" for v; unicode: the version of its Unicode Character Database, the data's own when absent), or a
+// phrase such as "not ECMA-262". The figure is its
 // right answers over every answer the data asks in those encodings and grammars, of that version of Unicode (the data
 // with that version's overlay), counted by the data's own rule, so an answer its runner did not ask counts against it
 // as a wrong one does, and 100% means every answer asked and right. Without the encodings, or without the data's
@@ -464,7 +467,7 @@ function fmtRatio(r, versus = state.baseline !== "best") {
 // night) are a share of what that commit asks, say which commit, and are never shown as fully compliant, since
 // tonight's data was not asked of that engine. The answers of another commit or version are in testData.answersAt,
 // keyed "<commit>|<version>".
-// Returns { short, long, cls } or null.
+// Returns { short, long, cls, badges: [{ short, long }] } or null.
 const TEST_DATA = (DATA.meta && DATA.meta.testData) || {};
 const ANSWERS = TEST_DATA.answers || null;
 const DATA_COMMIT = TEST_DATA.commit || "";
@@ -472,22 +475,50 @@ const DATA_UNICODE = TEST_DATA.unicode ? String(TEST_DATA.unicode) : "";
 const ANSWERS_AT = TEST_DATA.answersAt || {};
 const ENCODING = { utf16: "UTF-16", utf8: "UTF-8" };
 const GRAMMAR = { legacy: "legacy", unicode: "u", unicode_sets: "v" };
-// The grammars and the version of Unicode an engine is judged in, for its label: "u and v; Unicode 18.0".
+// The grammars and the version of Unicode an engine is judged in.
 function askedOf(c) {
   const grammars = Array.isArray(c.grammars) ? c.grammars.filter(g => g in GRAMMAR) : Object.keys(GRAMMAR);
   const unicode = c.unicode ? String(c.unicode) : DATA_UNICODE;
-  const words = [];
-  if (grammars.length < 3) words.push(grammars.map(g => GRAMMAR[g]).join(" and "));
-  if (unicode && unicode !== DATA_UNICODE) words.push(`Unicode ${unicode}`);
-  return { grammars, unicode, words };
+  return { grammars, unicode };
+}
+const OPERATION = { global: "global search", sticky: "sticky search", replace: "replace", split: "split" };
+const and = words => words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+// What an engine leaves out, as badges: each of the kinds tools/merge.py allows, a short word for the badge and a
+// sentence for the tooltip. Unicode of the data's own version leaves nothing out, and has no badge.
+function exclusions(c) {
+  return (Array.isArray(c.excludes) ? c.excludes : []).map(x => {
+    switch (x.class) {
+      case "encoding": return { short: `no ${ENCODING[x.leaves]}`, long: `${ENCODING[x.leaves]}, as the engine has no interface in it` };
+      case "grammar": {
+        const names = x.leaves.map(g => GRAMMAR[g]);
+        return { short: `no ${names.join(", ")}`, long: `the ${and(names)} grammar${names.length > 1 ? "s" : ""}, which the engine does not have` };
+      }
+      case "unicode": return x.version === DATA_UNICODE ? null : {
+        short: `Unicode ${x.version}`,
+        long: `the answers of Unicode ${DATA_UNICODE || "the data's version"} where Unicode ${x.version} differs, as the engine's tables are Unicode ${x.version}: it is judged by that version's answers` };
+      case "operations": {
+        const names = x.leaves.map(o => OPERATION[o]);
+        return { short: `${x.leaves.join(", ")} from exec`, long: `the engine's own ${and(names)}, which it does not have: the runner writes them over its exec, as a JavaScript engine writes its String methods` };
+      }
+      default: return null;
+    }
+  }).filter(Boolean);
+}
+// How an engine was judged, the same sentence for every engine: the runner and the calls it makes in each encoding.
+function judgedBy(c) {
+  const j = c.judge;
+  if (!j || !j.runner || !j.calls) return "";
+  const file = String(j.runner).split("/").pop();
+  return `Judged by ${file}, calling ${and(Object.keys(ENCODING).filter(e => j.calls[e]).map(e => `${and(j.calls[e])} over ${ENCODING[e]}`))}`;
 }
 function compliance(info) {
   const c = info && info.compliance;
   if (c == null || c === "") return null;
-  if (typeof c === "string") return { short: c, long: c, cls: "" };
+  if (typeof c === "string") return { short: c, long: c, cls: "", badges: [] };
   const n = v => Number(v || 0).toLocaleString("en");
   const encodings = Array.isArray(c.encodings) ? c.encodings.filter(e => e in ENCODING) : [];
-  const { grammars, unicode, words } = askedOf(c);
+  const { grammars, unicode } = askedOf(c);
+  const badges = exclusions(c);
   const commit = c.dataCommit ? String(c.dataCommit) : DATA_COMMIT;
   const at = commit !== DATA_COMMIT ? commit : "";
   const elsewhere = at || (unicode && unicode !== DATA_UNICODE);
@@ -507,34 +538,36 @@ function compliance(info) {
   const mismatch = full > 0 && answered > full;
   if (mismatch) full = 0;
   const notAnswered = full ? full - answered : 0;
-  const of = full || right + bad;
+  // A count of matches on a workload that differs from V8's is a wrong answer the test data did not catch: each is one
+  // more wrong answer in the figure.
+  const miscounted = info.id ? wrongCounts(info.id) : [];
+  const counts = miscounted.length;
+  const of = (full || right + bad) + counts;
   // Rounded down, so one answer short never reads as 100%.
   const pct = of ? Math.floor((right / of) * 10000) / 100 : 0;
-  const complete = full > 0 && right === full;
-  const labels = (encodings.length === 1 ? [ENCODING[encodings[0]]] : []).concat(words);
-  const which = labels.length ? ` (${labels.join("; ")})` : "";
+  const complete = full > 0 && right === full && !counts;
   // Against the data's count, short of every answer is never 100%; a share of what a runner asked may be.
-  const share = complete || (!full && right === of) ? "100%" : `${(full ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
+  const share = complete || (!full && right === of) ? "100%" : `${(full || counts ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
   const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]]
     .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
   const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
   const scope = (grammars.length < 3 ? ` in the ${grammars.map(g => GRAMMAR[g]).join(" and ")} grammar${grammars.length > 1 ? "s" : ""}` : "")
     + (unicode && unicode !== DATA_UNICODE ? `, with the answers of Unicode ${unicode}` : "");
-  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}${scope}`
+  const countsText = counts ? `, ${counts} ${counts === 1 ? "count" : "counts"} of matches that differ from V8's (${miscounted.join(", ")})` : "";
+  const over = full ? ` of the ${n(full)} answers the data asks${counts ? ` and those ${counts}` : ""} over ${encodings.map(e => ENCODING[e]).join(" and ")}${scope}`
     : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(asked)}, so it does not count by the data's rule`
     : elsewhere && !asks ? ` of the answers its runner asked (what the data asks of it${at ? " at the commit it was counted at" : ""}${unicode !== DATA_UNICODE ? ` under Unicode ${unicode}` : ""} could not be counted)`
     : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
-  // A count of matches on a workload that differs from V8's is a wrong answer outside the test data: an engine with
-  // one is not shown as fully compliant, whatever its share of the data.
-  const counts = info.id ? wrongCounts(info.id) : 0;
-  const countsText = counts ? `; its count of matches differs from V8's on ${counts} ${counts === 1 ? V.schema : V.schemas}` : "";
   const atText = at ? `; counted at the test data's ${at.slice(0, 7)}${DATA_COMMIT ? `, not tonight's ${DATA_COMMIT.slice(0, 7)}` : ""}` : "";
-  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})${atText}${countsText}` +
-    (c.note ? `. ${c.note}` : "");
-  if (complete && !counts && !at) return { short: `✓ 100% ECMA-262${which}`, long, cls: "comp-ok" };
-  const mark = (at ? ` (data ${at.slice(0, 7)})` : "") + (counts ? `, ≠ count on ${counts}` : "");
-  return { short: (full ? `${share} ECMA-262${which}` : `${share} of asked`) + mark, long, cls: "comp-wrong" };
+  const judged = judgedBy(c);
+  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${countsText}${over})${atText}.` +
+    (judged ? ` ${judged}.` : "") + (badges.length ? ` Leaves out ${badges.map(b => b.long).join("; ")}.` : "");
+  if (complete && !at) return { short: "✓ 100% ECMA-262", long, cls: "comp-ok", badges };
+  const mark = at ? ` (data ${at.slice(0, 7)})` : "";
+  return { short: (full ? `${share} ECMA-262` : `${share} of asked`) + mark, long, cls: "comp-wrong", badges };
 }
+// A compliance's label in the Overall chart: its figure and its badges.
+function labelOf(comp) { return comp.short + (comp.badges && comp.badges.length ? ` · ${comp.badges.map(b => b.short).join(" · ")}` : ""); }
 // Fully compliant: every answer the data asks in its encodings, asked and right.
 function fullyCompliant(info) {
   const comp = compliance(info);
@@ -570,15 +603,12 @@ function renderEngines() {
     const pkg = e.package && e.package.url ? `<a href="${esc(e.package.url)}">${esc(e.package.label || linkText(e.package.url))}</a>` : "";
     const src = e.source ? `<a href="${esc(e.source)}">${esc(linkText(e.source))}</a>` : "";
     const how = e.how ? `<span class="how">${esc(e.how)}</span>` : "";
-    // The grammars it implements and its Unicode version, as its compliance is judged (all three, and the data's
-    // version, when it does not say); an engine of another dialect says so.
+    // What its compliance leaves out, as its badges say (nothing, for an engine judged on every answer); an engine
+    // of another dialect says so.
     const comp = e.compliance;
     let judged = "";
     if (typeof comp === "string") judged = comp;
-    else if (comp && typeof comp === "object") {
-      const a = askedOf(comp);
-      judged = `${a.grammars.length === 3 ? "legacy, u and v" : a.grammars.map(g => GRAMMAR[g]).join(" and ")}` + (a.unicode ? `; Unicode ${a.unicode}` : "");
-    }
+    else if (comp && typeof comp === "object") judged = exclusions(comp).map(b => b.short).join(", ") || "nothing left out";
     body += `<tr><th scope="row">${esc(e.name)}${how}</th><td class="ver">${esc(e.versions.join(", "))}</td><td class="ver">${esc(judged)}</td>` +
       `<td class="rows">${e.rows.map(r => `<span>${esc(r)}</span>`).join("")}</td><td>${pkg}</td><td>${src}</td></tr>`;
   }
@@ -713,7 +743,7 @@ function renderBoard() {
   // own; the group is left out when the two would take more than half the chart.
   const nameW = narrow ? 0 : Math.max(0, ...rows.map(r => {
     const info = IMPL.get(r.impl), comp = compliance(info);
-    return textWidth(info.name, "lab", "font-weight: 600") + (comp ? 8 + textWidth(comp.short, "lab-sub") : 0);
+    return textWidth(info.name, "lab", "font-weight: 600") + (comp ? 8 + textWidth(labelOf(comp), "lab-sub") : 0);
   }));
   const groupW = narrow ? 0 : Math.max(0, ...rows.map(r => IMPL.get(r.impl).group ? textWidth(IMPL.get(r.impl).group, "lab-sub") : 0));
   const showGroup = !narrow && groupW > 0 && nameW + 16 + groupW + 12 <= W / 2;
@@ -741,6 +771,7 @@ function renderBoard() {
     if (comp) {
       const t = svgEl("tspan", { dx: 8, class: "lab-sub", style: `font-weight: 400; fill: var(${comp.cls === "comp-ok" ? "--faster" : comp.cls === "comp-wrong" ? "--slower" : "--muted"})` }, comp.short);
       name.append(t);
+      if (comp.badges.length) name.append(svgEl("tspan", { class: "lab-sub", style: "font-weight: 400; fill: var(--muted)" }, ` · ${comp.badges.map(b => b.short).join(" · ")}`));
     }
     svg.append(name);
     if (showGroup && info.group) svg.append(svgEl("text", { x: labelW - 12, y: cy + 4, "text-anchor": "end", class: "lab-sub", "pointer-events": "none" }, info.group));
@@ -1069,7 +1100,8 @@ function init() {
       `<label title="${esc(i.version || "")}"><input type="checkbox" id="pick-${esc(i.id)}" value="${esc(i.id)}">` +
       `<span><span class="pick-name">${i.name.split(" ").map(w => `<span class="w">${esc(w)}</span>`).join(" ")}</span>` +
       `<span class="pick-meta">${i.version ? `<small>${esc(i.version.split(" ")[0])}</small>` : ""}` +
-      `${compliance(i) ? `<span class="comp ${compliance(i).cls}" title="${esc(compliance(i).long)}">${esc(compliance(i).short)}</span>` : ""}</span></span></label>`).join("") + `</div>`).join("");
+      `${compliance(i) ? `<span class="comp ${compliance(i).cls}" title="${esc(compliance(i).long)}">${esc(compliance(i).short)}</span>` +
+        compliance(i).badges.map(b => `<span class="comp comp-x" title="${esc(b.long)}">${esc(b.short)}</span>`).join("") : ""}</span></span></label>`).join("") + `</div>`).join("");
   document.getElementById("langs").addEventListener("change", e => {
     const id = e.target.value;
     if (e.target.checked) state.selected.add(id); else state.selected.delete(id);

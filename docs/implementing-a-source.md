@@ -39,7 +39,7 @@ this repository's nightly run.
 ### The test data
 
 [corvus-dotnet/ecma262-regex-test-data](https://github.com/corvus-dotnet/ecma262-regex-test-data) records what V8
-answers for about 115,000 patterns over about 5.75 million texts, as JSON Lines files under `data/`. Its README is the
+answers for its patterns over their texts, as JSON Lines files under `data/` (its `manifest.json` has the counts). Its README is the
 authority. Read it first, above all the section "How a runner judges an engine". This guide summarises that section
 and does not replace it.
 
@@ -49,9 +49,9 @@ image that commit at `/data`, so that every engine on a given night is judged ag
 moves only once every source's runner reads the data at the new commit. Run by hand without `/data`, the image clones
 the data's `main`.
 
-The data has three kinds of file.
+The data has four kinds of file.
 
-- **Test files** (every `.jsonl` file except the two below). Each record has a pattern, its flags, V8's verdict on
+- **Test files** (every `.jsonl` file at the top of `data/` except the two below). Each record has a pattern, its flags, V8's verdict on
   whether the pattern is valid under each grammar (`valid.unicode`, `valid.legacy` and, in records that have it,
   `valid.unicode_sets`), and a list of tests. Each test is a text and, for each grammar the pattern is valid under,
   whether V8 finds a match in it.
@@ -60,6 +60,10 @@ The data has three kinds of file.
   `split` and `split3`.
 - **`ill-formed-utf8.jsonl`**. Each test is a sequence of bytes that is not valid UTF-8 (`tests[].bytes`, in
   hexadecimal). The right answer is for the engine to refuse it.
+- **`exec/test262.jsonl`**, in a directory of its own so that a runner that reads the top of `data/` does not take
+  it for a test file. Each record is a pattern with its own flags (`g`, `y` and `d` among them) and the calls of
+  `exec` that test262's tests make on it: a text, the `lastIndex` exec reads, and V8's answer (null, or the
+  positions of the match and of every group, the named groups and, with `g` or `y`, the `lastIndex` exec leaves).
 
 `start-searches.jsonl` deserves a mention. Its patterns have matches that start inside a run of the characters a
 literal or a loop accepts. It catches engines that speed up their search for a match start (by searching for a
@@ -87,6 +91,11 @@ Under each grammar, the runner compiles the pattern and compares the engine's ve
   `replace`, `replaceAll`, `split`, `split3`). If the text holds no lone surrogate, it is five more over UTF-8 (the
   same, without `split` and `split3`). `sticky` is not asked of an empty text. Nor is it asked over UTF-8 when
   `lastIndex` 1 falls between the two halves of a supplementary character, because UTF-8 has no such position.
+- **`exec/test262.jsonl`.** A record is asked in the one grammar its flags give (`v`, `u`, or neither: legacy), with
+  its flags as they are. Each call is one answer over UTF-16. If the text holds no lone surrogate and `lastIndex` does
+  not fall between the halves of a pair, it is one more over UTF-8, with positions in bytes. `lastIndex` is 0 without
+  `g` or `y`, and can lie past the end of the text (as far as 2^53 - 1 and `Number.MAX_VALUE`), where exec gives null.
+  An engine that refuses the pattern has one *refused*, and its calls go unanswered.
 - **`ill-formed-utf8.jsonl`.** Each test under each valid grammar is one answer over UTF-8 only. The right answer
   is a refusal: the error the engine's UTF-8 interface defines for input that is not UTF-8. A match, a non-match, a
   partial read or reading the bytes as U+FFFD is wrong. A crash or a hang is unanswered. If the interface's text type
@@ -96,11 +105,14 @@ Under each grammar, the runner compiles the pattern and compares the engine's ve
   Without `u` or `v`, a match can start or end between the two halves of a supplementary character; over UTF-8 that
   position is the third of the character's four bytes. A text in an answer (a capture, a replacement) is compared
   with V8's text converted to UTF-8, with each lone half of a pair as U+FFFD.
-- **What is skipped.** Tests marked `v8_deviation`, and records listed in the data's README under "Where V8 departs
-  from ECMA-262". Nothing else.
-- **No answer is a wrong answer.** If a match reaches the runner's time limit, or the engine crashes or hangs, that is
-  one *unanswered* (`limit`), and so is every other answer that record would have given. The existing runners allow
-  2 seconds a match.
+- **What is skipped.** Records and tests marked `v8_deviation` (the data's README lists them under "Where V8 departs
+  from ECMA-262"). Nothing else, except what an engine may leave out (see
+  [What a runner may leave out](#what-a-runner-may-leave-out)).
+- **No answer is a wrong answer.** An answer that reaches the runner's limit, or that the engine crashes or hangs in,
+  is one *unanswered* (`limit`). Only that answer: the runner goes on to the next one.
+- **The limit.** We recommend you implement a 2 second timeout, or an equivalent complexity constraint (a limit on the
+  engine's steps or backtracking). The existing runners give each match 2 seconds, through the engine's own timeout
+  where it has one. Runners which exceed this may be excluded completely from the benchmarks.
 
 **Every answer must be asked.** If the engine's interface cannot hold some texts (an R string cannot hold a NUL; a
 Python `str` cannot express a position between the two halves of a pair), the runner needs another form that can, so
@@ -108,9 +120,28 @@ that it still asks every answer. The R package takes raw vectors and UTF-16 code
 package `array('H')` code units. A runner that skips what its interface cannot hold answers fewer questions than the
 data asks, and the page shows that.
 
+### What a runner may leave out
+
+A runner asks every answer, with four exceptions. Each is a property of the engine, never of the runner, and each is
+declared in the runner's compliance (`excludes`, below) and shown on the page as a badge of what it leaves out. The
+page refuses any other kind of exclusion. Whatever else a runner does not ask counts as not answered, so a file the
+runner does not read, or records it finds slow, are never left out.
+
+| `class` | It leaves out | Allowed when | The badge |
+|---|---|---|---|
+| `encoding` | one encoding (`"leaves": "utf8"`, or `"utf16"`) | the engine has no interface in that encoding | no UTF-8 |
+| `grammar` | one or two grammars (`"leaves": ["unicode", "unicode_sets"]`) | the engine has no such mode | no u, v |
+| `unicode` | the data's answers where another version of Unicode differs (`"version": "18.0"`) | the engine's tables are of that version: its runner reads the data with that version's overlay applied (`node unicode.js apply <version> <dir>` in the test data repository) | Unicode 18.0 |
+| `operations` | the engine's own global search, sticky search, replace or split (`"leaves": ["global", "replace", "split"]`, of `global`, `sticky`, `replace` and `split`) | the engine does not have them: the runner writes them over its exec, as a JavaScript engine's String methods are written | global, replace, split from exec |
+
+**Every answer must be asked.** An interface that cannot hold some texts is not an exclusion. If the engine's
+interface cannot hold some texts (an R string cannot hold a NUL; a Python `str` cannot express a position between the
+two halves of a pair), the runner needs another form that can, so that it still asks every answer. The R package
+takes raw vectors and UTF-16 code units for this, and the Python package `array('H')` code units.
+
 ### What a runner prints
 
-The last line of a runner's output is its counts, in this form (the results script reads it):
+The last line of a runner's output is its counts, in this form:
 
 ```
 records 123601 (skipped 232 deviations)  right 29689063  wrong 0  refused-valid 0  accepted-invalid 0  limit 0  errors 0  in 7.0s
@@ -119,36 +150,55 @@ records 123601 (skipped 232 deviations)  right 29689063  wrong 0  refused-valid 
 A runner also writes every case it got wrong, refused, accepted or left unanswered to a file, one per line, which its
 CI keeps when the run fails.
 
+With `--compliance <file>`, a runner writes the engine's compliance object to that file, which the results script
+gives the page as it is. The runner writes it, never the results script, so that what the runner leaves out and what
+the page says it leaves out come from one place:
+
+```json
+{
+  "right": 29689063, "wrong": 0, "refused": 0, "acceptedInvalid": 0, "limited": 0,
+  "judge": {
+    "runner": "https://github.com/owner/name/blob/main/tools/dataset.rs",
+    "calls": { "utf16": ["Regex::is_match_utf16", "Regex::captures_utf16"], "utf8": ["Regex::is_match", "Regex::captures"] }
+  },
+  "excludes": []
+}
+```
+
+- The counts: `right`, `wrong`, `refused`, `acceptedInvalid`, and `limited`, which is the runner's `limit` plus
+  `errors`.
+- `judge`: `runner`, the address of the runner's source, and `calls`, the engine's calls the runner makes in each
+  encoding it asks in, by their names in the engine's own API. The page writes them as one sentence, the same for
+  every engine ("Judged by dataset.rs, calling Regex::is_match_utf16 and Regex::captures_utf16 over UTF-16 and ...").
+  An encoding with no calls must have an exclusion of that encoding, and one with calls must not.
+- `excludes`: what the engine leaves out, each of the four kinds above, at most one of each kind. Empty for an engine
+  that is asked every answer.
+- `dataCommit`, for counts checked in beside the harness (see below).
+
+The page refuses a compliance that gives anything else in place of these (a free-text note, say, or `encodings`,
+`grammars` or `unicode` of its own): the engine is shown without it, and the page says why.
+
 ### What the page shows
 
-The results script gives each ECMA-262 engine a `compliance` object. It holds the counts (`right`, `wrong`,
-`refused`, `acceptedInvalid`, and `limited`, which is the runner's `limit` plus `errors`) and says what the runner
-asked:
-
-- `encodings`: the encodings the runner asks in (`["utf16", "utf8"]`, or just one of them).
-- `grammars`: the grammars the engine implements, of `"legacy"`, `"unicode"` (u) and `"unicode_sets"` (v). An engine
-  that implements only some (SRELL has only u and v; `std::regex` has neither) gives them, and its runner asks under
-  those alone. Absent, the engine is taken to implement all three.
-- `unicode`: the version of the engine's Unicode Character Database, as `"major.minor"` (`"18.0"`; a number, or a
-  string such as `"18"` or `"18.0.0"`, is read as that). An engine whose version is not the
-  data's (V8's, in the data's `manifest.json`) gives it, and its runner reads the data with that version's overlay
-  applied (`node unicode.js apply <version> <dir>` in the test data repository), so that it is asked the answers of
-  its version. Absent, the engine is taken to have the data's version.
-- `dataCommit`, for counts checked in beside the harness (see below).
+`tools/merge.py` checks each compliance and works out what the page counts by: the encodings (those with calls),
+the grammars (all but those an exclusion leaves out) and the version of Unicode (that of an exclusion of Unicode, or
+the data's, V8's, from the data's `manifest.json`).
 
 The nightly build works out how many answers the data asks in each encoding and grammar, by the rule above, with
 `tools/answers.py` (and for another version of Unicode, with that version's overlay applied). An engine's figure is
-its right answers over all the answers in its encodings and grammars, of its version of Unicode. An answer the runner
-never asked counts against the engine exactly as a wrong answer does. The list of engines on the page gives each
-engine's grammars and version.
+its right answers over all the answers in its encodings and grammars, of its version of Unicode, and over each workload
+where its count of matches differs from V8's, which is a wrong answer the data did not catch. An answer the runner
+never asked counts against the engine exactly as a wrong answer does. The list of engines on the page gives what each
+engine leaves out.
 
 - **✓ 100%** means every answer was asked and every one was right, and the engine's match count agrees with V8's on
   every workload. (A different count is a wrong answer the data did not catch. See
   [The count check](#the-count-check).)
-- An engine that answers in one encoding, implements only some grammars or has another version of Unicode says so,
-  for example "100% ECMA-262 (UTF-16)" or "99.88% ECMA-262 (UTF-16; u and v; Unicode 18.0)".
-- If a runner gives no `encodings`, or counts more answers than the data asks (so it is not counting by the rule),
-  the page shows its share "of asked" and never shows it as fully compliant.
+- Each exclusion is a badge beside the figure, for example "100% ECMA-262 · no UTF-8" or "99.88% ECMA-262 · no UTF-8 ·
+  no legacy · Unicode 18.0 · global, replace, split from exec". The tooltip has the counts, the
+  sentence of the runner and its calls, and a sentence for each badge.
+- If a runner counts more answers than the data asks (so it is not counting by the rule), the page shows its share
+  "of asked" and never shows it as fully compliant.
 
 ### Checking a runner before you publish it
 
@@ -166,22 +216,31 @@ engine's grammars and version.
 
 A source can also judge the platform's other ECMA-262 engines (for example QuickJS, regress, TRegex, Boost.Regex,
 std::regex and SRELL), by the same rule and through the same runner, in whichever encodings each supports. An engine
-with no match limit of its own runs in child processes with a time limit on each record. A record that makes no
-progress within that limit counts as unanswered, together with every answer it would have given.
+with no match limit of its own runs in child processes, each of which reports every answer as it gives it. A watchdog
+thread in the child times each answer from just before the engine is called, by the CPU time of the thread that runs
+the engine where the system gives it (so that the load of the machine does not stop an answer), and ends the process
+when one passes 2 seconds (writing only what takes no lock, since the engine is still in its match). That answer is
+unanswered, and the supervisor starts a new child at the next answer, so the engine keeps to the same 2 seconds as the
+others, and loses only the answer that did not finish. Once three answers of a record have reached the limit, its
+other answers are unanswered without being asked, so that a pattern the engine cannot answer on any text costs
+seconds rather than a limit for each of its answers. Where only the wall clock can be read (a JavaScript engine), the
+run is made with nothing else running on the machine. Where such an engine has no global search, replace or split of its own, the runner writes them over its
+exec (the `operations` exclusion), and where it has no UTF-8 interface or no mode of a grammar, it says so with the
+`encoding` or `grammar` exclusion.
 
 Such a run can take a long time (regress takes over an hour), so the image does not repeat it every night. The source
-works out those counts once and checks them in beside the harness as `compliance-<engine>.txt`. Such counts are tied
+works out those counts once and checks them in beside the harness as `compliance-<engine>.json`, the runner's
+`--compliance` file. Such counts are tied
 to the commit of the data they were made at, and are held to three rules.
 
-- **The file says its commit.** Its first line is `data <full commit>`, the commit of the test data the counts were
-  made at; the runner's output follows. The commit is the full 40 characters: a prefix of the nightly pin is read as
+- **The file says its commit.** It gives `dataCommit`, the full commit of the test data the counts were made at.
+  The commit is the full 40 characters: a prefix of the nightly pin is read as
   the pin, and any other commit that is not a full one leaves the engine's compliance off the page, with a note that
   says why (the rest of the source is shown).
-- **The page judges them against that commit.** The results script copies the commit into the engine's `compliance`
-  object as `dataCommit`. When it differs from the nightly pin, the nightly build counts what that commit asks with
+- **The page judges them against that commit.** When the commit differs from the nightly pin, the nightly build counts what that commit asks with
   `tools/answers.py`, and the page shows the engine's share of those answers with "counted at the test data's
   `<commit>`". Such an engine is never shown as fully compliant, since tonight's data was not asked of it.
-- **CI keeps them at its own pin.** A CI step fails when a `compliance-<engine>.txt` was made at another commit than
+- **CI keeps them at its own pin.** A CI step fails when a `compliance-<engine>.json` was made at another commit than
   the one CI checks the data out at, so moving CI's pin means working the counts out again in the same change.
 
 An engine that does not claim ECMA-262 compliance has the compliance `"not ECMA-262"`.
@@ -245,7 +304,8 @@ without them, so a harness given `V8=0` always has a count to check against.
 
 If an ECMA-262 engine's count differs, it gets no figure on that workload. Instead it gets the error
 `counted N where V8 counts M`, which the data file carries as `{"wrongCount": {"counted": N, "v8": M}}`. The page shows
-"≠ count" in that cell and removes the ✓ from the engine's compliance. An engine of another dialect keeps its figure,
+"≠ count" in that cell and counts it as one more wrong answer in the engine's compliance figure, so the figure is never
+100% (the tooltip names the workloads). An engine of another dialect keeps its figure,
 and the workload is marked with both counts.
 
 The test data cannot hold every shape a search for a start can get wrong. A wrong count on a workload is how one such
@@ -378,4 +438,4 @@ The engines appear at the next nightly build, or at a run started by hand (`work
 - the harness keeps to the protocol, including the 30 s limit, the count check and validation outside the timed
   region;
 - the image's smoke run and count gate pass, and failures in the data file say what kind they are;
-- each checked-in `compliance-<engine>.txt` starts with the data commit it was made at, the commit CI pins.
+- each checked-in `compliance-<engine>.json` gives the data commit it was made at, the commit CI pins.

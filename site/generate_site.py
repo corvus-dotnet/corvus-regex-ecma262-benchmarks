@@ -28,8 +28,11 @@ from GitHub Pages or copied to a bucket as it is. The data file (JSON):
       },
       "impls": [{ "id": "...", "name": "...", "group": "...", "version": "...",
                   "compliance": {"right": n, "wrong": n, "refused": n, "acceptedInvalid": n, "limited": n,
-                                 "encodings": ["utf16", "utf8"], "dataCommit": "...", "note": "..."}
-                                | "not ECMA-262" }],
+                                 "judge": {"runner": "https://...", "calls": {"utf16": ["..."], "utf8": ["..."]}},
+                                 "excludes": [{"class": "encoding", "leaves": "utf8"}, ...],
+                                 "encodings": ["utf16", "utf8"], "grammars": [...], "unicode": "18.0",
+                                 "dataCommit": "..."}                # (encodings, grammars and unicode as
+                                | "not ECMA-262" }],                # tools/merge.py works them out)
                                                                     # compliance is optional: shown beside the name in
                                                                     # the Overall rows and the picker; its figure is the
                                                                     # right answers over meta.testData.answers of its

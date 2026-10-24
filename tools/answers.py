@@ -12,6 +12,10 @@ runner judges an engine" in its README): what a compliance figure of 100% is a s
   supplementary character: UTF-8 has no such position, as it has no form of a lone surrogate.
 - In ill-formed-utf8.jsonl a test holds bytes that are not UTF-8, and is one answer over UTF-8 alone (the right one
   a refusal) under each grammar the pattern is valid in.
+- In exec/test262.jsonl (the exec calls of test262's tests, in a directory of its own) a record is a pattern with its
+  own flags, in the one grammar they give (v, u, or neither: legacy), and a test is one call of exec: one answer over
+  UTF-16 and, when its text holds no lone surrogate and its lastIndex does not fall between the halves of a pair, one
+  more over UTF-8.
 
 An engine's figure is its right answers over the answers of the encodings and the grammars it answers in, so an
 answer its runner did not ask counts against it as a wrong one does. The counts are given in total, for each grammar
@@ -26,6 +30,7 @@ Usage:
 """
 
 import json
+import math
 import os
 import sys
 
@@ -35,6 +40,41 @@ def lone(s):
 
 
 GRAMMARS = ("unicode", "legacy", "unicode_sets")
+EXEC = "exec/test262.jsonl"
+
+
+def units(s):
+    """A str as UTF-16 code units (a pair's escapes read as one code point beyond U+FFFF become two)."""
+    out = []
+    for c in s:
+        n = ord(c)
+        out.extend([0xD800 + ((n - 0x10000) >> 10), 0xDC00 + ((n - 0x10000) & 0x3FF)] if n > 0xFFFF else [n])
+    return out
+
+
+def exec_answers(data_dir):
+    """{grammar: [utf16, utf8]} for exec/test262.jsonl, or None when the data has no such file."""
+    path = os.path.join(data_dir, EXEC)
+    if not os.path.isfile(path):
+        return None
+    per = {g: [0, 0] for g in GRAMMARS}
+    with open(path, encoding="utf-8", errors="surrogatepass") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            flags = record["flags"]
+            a = per["unicode_sets" if "v" in flags else "unicode" if "u" in flags else "legacy"]
+            for test in record["tests"]:
+                if test.get("v8_deviation"):
+                    continue
+                text = units(test["text"])
+                at = test["lastIndex"]
+                at = len(text) + 1 if not math.isfinite(at) or at > len(text) else int(at)
+                inside = 0 < at < len(text) and 0xDC00 <= text[at] <= 0xDFFF and 0xD800 <= text[at - 1] <= 0xDBFF
+                a[0] += 1
+                a[1] += 0 if lone(test["text"]) or inside else 1
+    return per
 
 
 def overlay(data_dir, unicode):
@@ -110,6 +150,14 @@ def count(data_dir, unicode=None):
                             a[0] += 1
                             a[1] += 1 if whole else 0
         files[name] = {"utf16": sum(v[0] for v in per.values()), "utf8": sum(v[1] for v in per.values()),
+                       "grammars": {g: {"utf16": v[0], "utf8": v[1]} for g, v in per.items()}}
+        for g, v in per.items():
+            by_grammar[g]["utf16"] += v[0]
+            by_grammar[g]["utf8"] += v[1]
+    # No exec call depends on the version of Unicode, so no overlay changes an answer of exec/test262.jsonl.
+    per = exec_answers(data_dir)
+    if per is not None:
+        files[EXEC] = {"utf16": sum(v[0] for v in per.values()), "utf8": sum(v[1] for v in per.values()),
                        "grammars": {g: {"utf16": v[0], "utf8": v[1]} for g, v in per.items()}}
         for g, v in per.items():
             by_grammar[g]["utf16"] += v[0]
