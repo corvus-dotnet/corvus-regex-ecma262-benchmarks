@@ -318,8 +318,9 @@ def page_text(here, test_data):
         "and <b>from exec</b>, where it has no global search, replace or split of its own and the runner writes them "
         "over its exec. Each runner limits an engine to 2 s a match (or an equivalent limit on its work), and an answer "
         "that reaches the limit is unanswered. An engine that cannot be stopped in a match runs in child processes, "
-        "whose watchdog ends one at such an answer, and the next goes on from the answer after it. The tooltip has the "
-        "counts, the runner and the calls it makes. Counts worked out at an earlier commit of "
+        "whose watchdog ends one at such an answer, and the next goes on from the answer after it; once three answers "
+        "of a record have reached the limit, the rest of that record is unanswered. The tooltip has the counts, the "
+        "runner and the calls it makes. Counts worked out at an earlier commit of "
         "the data (for an engine too slow to judge every night) are a share of what that commit asks, and say which "
         "commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
     )

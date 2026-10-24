@@ -217,10 +217,14 @@ engine leaves out.
 A source can also judge the platform's other ECMA-262 engines (for example QuickJS, regress, TRegex, Boost.Regex,
 std::regex and SRELL), by the same rule and through the same runner, in whichever encodings each supports. An engine
 with no match limit of its own runs in child processes, each of which reports every answer as it gives it. A watchdog
-thread in the child times each answer from just before the engine is called, and ends the process when one passes 2
-seconds (writing only what takes no lock, since the engine is still in its match). That answer is unanswered, and the
-supervisor starts a new child at the next answer, so the engine keeps to the same 2 seconds as the others, and loses
-only the answer that did not finish. Where such an engine has no global search, replace or split of its own, the runner writes them over its
+thread in the child times each answer from just before the engine is called, by the CPU time of the thread that runs
+the engine where the system gives it (so that the load of the machine does not stop an answer), and ends the process
+when one passes 2 seconds (writing only what takes no lock, since the engine is still in its match). That answer is
+unanswered, and the supervisor starts a new child at the next answer, so the engine keeps to the same 2 seconds as the
+others, and loses only the answer that did not finish. Once three answers of a record have reached the limit, its
+other answers are unanswered without being asked, so that a pattern the engine cannot answer on any text costs
+seconds rather than a limit for each of its answers. Where only the wall clock can be read (a JavaScript engine), the
+run is made with nothing else running on the machine. Where such an engine has no global search, replace or split of its own, the runner writes them over its
 exec (the `operations` exclusion), and where it has no UTF-8 interface or no mode of a grammar, it says so with the
 `encoding` or `grammar` exclusion.
 
