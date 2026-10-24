@@ -184,7 +184,8 @@ the data's, V8's, from the data's `manifest.json`).
 
 The nightly build works out how many answers the data asks in each encoding and grammar, by the rule above, with
 `tools/answers.py` (and for another version of Unicode, with that version's overlay applied). An engine's figure is
-its right answers over all the answers in its encodings and grammars, of its version of Unicode. An answer the runner
+its right answers over all the answers in its encodings and grammars, of its version of Unicode, and over each workload
+where its count of matches differs from V8's, which is a wrong answer the data did not catch. An answer the runner
 never asked counts against the engine exactly as a wrong answer does. The list of engines on the page gives what each
 engine leaves out.
 
@@ -295,7 +296,8 @@ without them, so a harness given `V8=0` always has a count to check against.
 
 If an ECMA-262 engine's count differs, it gets no figure on that workload. Instead it gets the error
 `counted N where V8 counts M`, which the data file carries as `{"wrongCount": {"counted": N, "v8": M}}`. The page shows
-"≠ count" in that cell and removes the ✓ from the engine's compliance. An engine of another dialect keeps its figure,
+"≠ count" in that cell and counts it as one more wrong answer in the engine's compliance figure, so the figure is never
+100% (the tooltip names the workloads). An engine of another dialect keeps its figure,
 and the workload is marked with both counts.
 
 The test data cannot hold every shape a search for a start can get wrong. A wrong count on a workload is how one such

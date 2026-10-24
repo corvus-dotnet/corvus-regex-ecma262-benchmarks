@@ -335,9 +335,10 @@ def page_text(here, test_data):
     )
     count = (
         "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
-        "a wrong answer. An ECMA-262 engine with one has no figure there, and is not shown as fully compliant beside "
-        "its name whatever its share of the test data. An engine of another dialect keeps its figure, and the "
-        "workload shows both counts. A cell marked failed says, in its tooltip, what the harness reported.</p>"
+        "a wrong answer. An ECMA-262 engine with one has no figure there, and each such workload is one more wrong "
+        "answer in the compliance beside its name, so it is never 100%. An engine of another dialect keeps its "
+        "figure, and the workload shows both counts. A cell marked failed says, in its tooltip, what the harness "
+        "reported.</p>"
     )
     return lede, [what, figure, measured, where, compliance, stopped, count]
 

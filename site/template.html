@@ -400,7 +400,7 @@ function resultText(m) {
 // The workloads on which an engine's count of matches differs from V8's.
 function wrongCounts(id) {
   const rows = DATA.results[id] || {};
-  return Object.values(rows).filter(r => r && r.wrongCount).length;
+  return Object.keys(rows).filter(w => rows[w] && rows[w].wrongCount);
 }
 function geomean(xs) {
   return xs.length ? Math.exp(xs.reduce((s, x) => s + Math.log(x), 0) / xs.length) : NaN;
@@ -539,31 +539,32 @@ function compliance(info) {
   const mismatch = full > 0 && answered > full;
   if (mismatch) full = 0;
   const notAnswered = full ? full - answered : 0;
-  const of = full || right + bad;
+  // A count of matches on a workload that differs from V8's is a wrong answer the test data did not catch: each is one
+  // more wrong answer in the figure.
+  const miscounted = info.id ? wrongCounts(info.id) : [];
+  const counts = miscounted.length;
+  const of = (full || right + bad) + counts;
   // Rounded down, so one answer short never reads as 100%.
   const pct = of ? Math.floor((right / of) * 10000) / 100 : 0;
-  const complete = full > 0 && right === full;
+  const complete = full > 0 && right === full && !counts;
   // Against the data's count, short of every answer is never 100%; a share of what a runner asked may be.
-  const share = complete || (!full && right === of) ? "100%" : `${(full ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
+  const share = complete || (!full && right === of) ? "100%" : `${(full || counts ? Math.min(pct, 99.99) : pct).toFixed(2)}%`;
   const extra = [["refused", "refused"], ["acceptedInvalid", "accepted invalid"], ["limited", "unanswered"]]
     .filter(([k]) => c[k]).map(([k, w]) => `, ${n(c[k])} ${w}`).join("");
   const missing = notAnswered ? `, ${n(notAnswered)} not answered` : "";
   const scope = (grammars.length < 3 ? ` in the ${grammars.map(g => GRAMMAR[g]).join(" and ")} grammar${grammars.length > 1 ? "s" : ""}` : "")
     + (unicode && unicode !== DATA_UNICODE ? `, with the answers of Unicode ${unicode}` : "");
-  const over = full ? ` of the ${n(full)} answers the data asks over ${encodings.map(e => ENCODING[e]).join(" and ")}${scope}`
+  const countsText = counts ? `, ${counts} ${counts === 1 ? "count" : "counts"} of matches that differ from V8's (${miscounted.join(", ")})` : "";
+  const over = full ? ` of the ${n(full)} answers the data asks${counts ? ` and those ${counts}` : ""} over ${encodings.map(e => ENCODING[e]).join(" and ")}${scope}`
     : mismatch ? ` of what its runner asked, which counts ${n(answered)} answers where the data asks ${n(asked)}, so it does not count by the data's rule`
     : elsewhere && !asks ? ` of the answers its runner asked (what the data asks of it${at ? " at the commit it was counted at" : ""}${unicode !== DATA_UNICODE ? ` under Unicode ${unicode}` : ""} could not be counted)`
     : ` of the answers its runner asked (it does not say which encodings it answers in, so what it did not answer is not known)`;
-  // A count of matches on a workload that differs from V8's is a wrong answer outside the test data: an engine with
-  // one is not shown as fully compliant, whatever its share of the data.
-  const counts = info.id ? wrongCounts(info.id) : 0;
-  const countsText = counts ? `; its count of matches differs from V8's on ${counts} ${counts === 1 ? V.schema : V.schemas}` : "";
   const atText = at ? `; counted at the test data's ${at.slice(0, 7)}${DATA_COMMIT ? `, not tonight's ${DATA_COMMIT.slice(0, 7)}` : ""}` : "";
   const judged = judgedBy(c);
-  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${over})${atText}${countsText}.` +
+  const long = `ECMA-262 test data: ${share} (${n(right)} right, ${n(c.wrong)} wrong${extra}${missing}${countsText}${over})${atText}.` +
     (judged ? ` ${judged}.` : "") + (badges.length ? ` Leaves out ${badges.map(b => b.long).join("; ")}.` : "");
-  if (complete && !counts && !at) return { short: "✓ 100% ECMA-262", long, cls: "comp-ok", badges };
-  const mark = (at ? ` (data ${at.slice(0, 7)})` : "") + (counts ? `, ≠ count on ${counts}` : "");
+  if (complete && !at) return { short: "✓ 100% ECMA-262", long, cls: "comp-ok", badges };
+  const mark = at ? ` (data ${at.slice(0, 7)})` : "";
   return { short: (full ? `${share} ECMA-262` : `${share} of asked`) + mark, long, cls: "comp-wrong", badges };
 }
 // A compliance's label in the Overall chart: its figure and its badges.
