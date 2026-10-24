@@ -144,11 +144,9 @@ def unicode_version(value):
 ENCODINGS = ("utf16", "utf8")
 GRAMMARS = ("legacy", "unicode", "unicode_sets")
 OPERATIONS = ("global", "sticky", "replace", "split")
-# The one limit on a record for an engine that cannot be stopped in a match (docs/implementing-a-source.md).
-RECORD_LIMIT = 30
 # The kinds of thing a runner may leave out, each shown on the page as a badge of what it leaves out. Whatever else a
 # runner does not ask counts as not answered.
-EXCLUSIONS = ("encoding", "grammar", "unicode", "operations", "record-limit")
+EXCLUSIONS = ("encoding", "grammar", "unicode", "operations")
 
 
 def strings(value, allowed, what):
@@ -169,7 +167,7 @@ def normalise_compliance(c, pin=None):
     out) and `unicode` (that of an exclusion of Unicode, as unicode_version() writes it). A prefix of the night's pin
     as the dataCommit becomes the pin. Raises ValueError on a compliance that does not keep to this: a kind of
     exclusion not in EXCLUSIONS, an encoding the calls leave out and no exclusion names (or one named and asked), a
-    record limit other than RECORD_LIMIT, a version that is not one, or a dataCommit that is not a full commit and not
+    version that is not one, or a dataCommit that is not a full commit and not
     a prefix of the pin, which could not be fetched to count what it asks. A phrase ("not ECMA-262") or an absent
     compliance is returned as it is."""
     if not isinstance(c, dict):
@@ -221,10 +219,6 @@ def normalise_compliance(c, pin=None):
     if "operations" in by:
         out.append({"class": "operations",
                     "leaves": strings(by["operations"].get("leaves"), OPERATIONS, "the exclusion of operations")})
-    if "record-limit" in by:
-        if by["record-limit"].get("seconds") != RECORD_LIMIT:
-            raise ValueError(f"the record limit is not the {RECORD_LIMIT} seconds every runner gives a record")
-        out.append({"class": "record-limit", "seconds": RECORD_LIMIT})
     c["excludes"] = out
     c["encodings"] = list(c["judge"]["calls"])
     c["grammars"] = grammars
@@ -317,14 +311,15 @@ def page_text(here, test_data):
         "every answer the data asks of it, counted by the data's own rule (tools/answers.py), so that an answer its "
         "runner did not ask counts against it as a wrong one does. Each test is asked over UTF-16 and over UTF-8, under "
         "each of the three grammars (u, v and the legacy one without either). Records and tests where V8 departs from "
-        "ECMA-262 are left out for every engine. An engine leaves out nothing else unless it is of one of five kinds, "
+        "ECMA-262 are left out for every engine. An engine leaves out nothing else unless it is of one of four kinds, "
         "each shown as a badge of what it leaves out: <b>no UTF-8</b> (or UTF-16), where the engine has no interface "
         "in that encoding; <b>no u, v</b> (or another grammar), where it has no such mode; <b>Unicode</b> and a "
         "version, where its tables are of another version than the data's, so it is judged by that version's answers; "
-        "<b>from exec</b>, where it has no global search, replace or split of its own and the runner writes them over "
-        f"its exec; and <b>{RECORD_LIMIT} s per record</b>, where it cannot be stopped in a match, so it runs in child "
-        f"processes and a record with no answer in {RECORD_LIMIT} s is unanswered. Every other runner gives a match 2 "
-        "s. The tooltip has the counts, the runner and the calls it makes. Counts worked out at an earlier commit of "
+        "and <b>from exec</b>, where it has no global search, replace or split of its own and the runner writes them "
+        "over its exec. Every runner gives each answer 2 s, timed beside the engine's call; one that takes longer is "
+        "unanswered. An engine that cannot be stopped in a match runs in child processes, whose watchdog ends one at "
+        "such an answer, and the next goes on from the answer after it. The tooltip has the counts, the runner and the "
+        "calls it makes. Counts worked out at an earlier commit of "
         "the data (for an engine too slow to judge every night) are a share of what that commit asks, and say which "
         "commit. \"Not ECMA-262\" marks an engine that implements another dialect.</p>"
     )

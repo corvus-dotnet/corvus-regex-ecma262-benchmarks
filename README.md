@@ -70,7 +70,7 @@ The data shape itself is documented at the top of `site/generate_site.py`. In br
 
 `compliance` is the engine's result on the ECMA-262 test data: an object of counts (`right`, `wrong`, `refused`,
 `acceptedInvalid`, `limited`), with `judge` (the runner's address and the calls it makes in each encoding it asks in)
-and `excludes` (what it leaves out, each of the five kinds that
+and `excludes` (what it leaves out, each of the four kinds that
 [implementing a source](docs/implementing-a-source.md#what-a-runner-may-leave-out) allows, shown as badges); or the
 string `"not ECMA-262"` for an engine of another dialect. The page shows it beside the engine's name as its right
 answers over every answer the test data asks of it, which the nightly run counts from the pinned data by the data's

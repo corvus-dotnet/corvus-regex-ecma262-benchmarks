@@ -108,8 +108,9 @@ Under each grammar, the runner compiles the pattern and compares the engine's ve
 - **What is skipped.** Records and tests marked `v8_deviation` (the data's README lists them under "Where V8 departs
   from ECMA-262"). Nothing else, except what an engine may leave out (see
   [What a runner may leave out](#what-a-runner-may-leave-out)).
-- **No answer is a wrong answer.** Every runner allows 2 seconds a match. If a match reaches that limit, or the engine
-  crashes or hangs, that is one *unanswered* (`limit`), and so is every other answer that record would have given.
+- **No answer is a wrong answer.** Every runner gives each answer 2 seconds, timed from just before the engine is
+  called. An answer that takes longer, or that the engine crashes or hangs in, is one *unanswered* (`limit`). Only that
+  answer: the runner goes on to the next one.
 
 **Every answer must be asked.** If the engine's interface cannot hold some texts (an R string cannot hold a NUL; a
 Python `str` cannot express a position between the two halves of a pair), the runner needs another form that can, so
@@ -119,7 +120,7 @@ data asks, and the page shows that.
 
 ### What a runner may leave out
 
-A runner asks every answer, with five exceptions. Each is a property of the engine, never of the runner, and each is
+A runner asks every answer, with four exceptions. Each is a property of the engine, never of the runner, and each is
 declared in the runner's compliance (`excludes`, below) and shown on the page as a badge of what it leaves out. The
 page refuses any other kind of exclusion. Whatever else a runner does not ask counts as not answered, so a file the
 runner does not read, or records it finds slow, are never left out.
@@ -130,7 +131,6 @@ runner does not read, or records it finds slow, are never left out.
 | `grammar` | one or two grammars (`"leaves": ["unicode", "unicode_sets"]`) | the engine has no such mode | no u, v |
 | `unicode` | the data's answers where another version of Unicode differs (`"version": "18.0"`) | the engine's tables are of that version: its runner reads the data with that version's overlay applied (`node unicode.js apply <version> <dir>` in the test data repository) | Unicode 18.0 |
 | `operations` | the engine's own global search, sticky search, replace or split (`"leaves": ["global", "replace", "split"]`, of `global`, `sticky`, `replace` and `split`) | the engine does not have them: the runner writes them over its exec, as a JavaScript engine's String methods are written | global, replace, split from exec |
-| `record-limit` | any record with no answer in 30 seconds (`"seconds": 30`) | the engine cannot be stopped in a match, so it runs in child processes, and a record that makes no progress in 30 s counts as unanswered, with every answer it would have given | 30 s per record |
 
 **Every answer must be asked.** An interface that cannot hold some texts is not an exclusion. If the engine's
 interface cannot hold some texts (an R string cannot hold a NUL; a Python `str` cannot express a position between the
@@ -169,7 +169,7 @@ the page says it leaves out come from one place:
   encoding it asks in, by their names in the engine's own API. The page writes them as one sentence, the same for
   every engine ("Judged by dataset.rs, calling Regex::is_match_utf16 and Regex::captures_utf16 over UTF-16 and ...").
   An encoding with no calls must have an exclusion of that encoding, and one with calls must not.
-- `excludes`: what the engine leaves out, each of the five kinds above, at most one of each kind. Empty for an engine
+- `excludes`: what the engine leaves out, each of the four kinds above, at most one of each kind. Empty for an engine
   that is asked every answer.
 - `dataCommit`, for counts checked in beside the harness (see below).
 
@@ -193,7 +193,7 @@ engine leaves out.
   every workload. (A different count is a wrong answer the data did not catch. See
   [The count check](#the-count-check).)
 - Each exclusion is a badge beside the figure, for example "100% ECMA-262 · no UTF-8" or "99.88% ECMA-262 · no UTF-8 ·
-  no legacy · Unicode 18.0 · global, replace, split from exec · 30 s per record". The tooltip has the counts, the
+  no legacy · Unicode 18.0 · global, replace, split from exec". The tooltip has the counts, the
   sentence of the runner and its calls, and a sentence for each badge.
 - If a runner counts more answers than the data asks (so it is not counting by the rule), the page shows its share
   "of asked" and never shows it as fully compliant.
@@ -214,9 +214,11 @@ engine leaves out.
 
 A source can also judge the platform's other ECMA-262 engines (for example QuickJS, regress, TRegex, Boost.Regex,
 std::regex and SRELL), by the same rule and through the same runner, in whichever encodings each supports. An engine
-with no match limit of its own runs in child processes with a time limit on each record. A record that makes no
-progress within 30 seconds counts as unanswered, together with every answer it would have given (the `record-limit`
-exclusion). Where such an engine has no global search, replace or split of its own, the runner writes them over its
+with no match limit of its own runs in child processes, each of which reports every answer as it gives it. A watchdog
+thread in the child times each answer from just before the engine is called, and ends the process when one passes 2
+seconds (writing only what takes no lock, since the engine is still in its match). That answer is unanswered, and the
+supervisor starts a new child at the next answer, so the engine gets the same 2 seconds an answer as every other, and
+loses only the answer that did not finish. Where such an engine has no global search, replace or split of its own, the runner writes them over its
 exec (the `operations` exclusion), and where it has no UTF-8 interface or no mode of a grammar, it says so with the
 `encoding` or `grammar` exclusion.
 

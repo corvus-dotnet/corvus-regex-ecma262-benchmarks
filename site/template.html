@@ -500,7 +500,6 @@ function exclusions(c) {
         const names = x.leaves.map(o => OPERATION[o]);
         return { short: `${x.leaves.join(", ")} from exec`, long: `the engine's own ${and(names)}, which it does not have: the runner writes them over its exec, as a JavaScript engine writes its String methods` };
       }
-      case "record-limit": return { short: `${x.seconds} s per record`, long: `any record with no answer in ${x.seconds} s, which is unanswered with every answer it would have given, as the engine cannot be stopped in a match and runs in child processes` };
       default: return null;
     }
   }).filter(Boolean);
