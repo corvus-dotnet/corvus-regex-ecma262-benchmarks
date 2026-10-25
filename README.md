@@ -172,7 +172,16 @@ Python and Docker, and runs these steps.
 ## The results contract
 
 Each source's image writes one data file, in the results-page shape. The shape is documented at the top of
-`site/generate_site.py`, but in brief it looks like this.
+`site/generate_site.py`, and it's also a JSON Schema (draft 2020-12),
+[`schema/results.schema.json`](schema/results.schema.json), with an example file beside it. You can check a data file
+against it with our own validator before you publish it.
+
+```sh
+python3 -m pip install corvus-json-schema
+python3 schema/validate.py out/industry.json
+```
+
+In brief, the shape looks like this.
 
 ```json
 {
