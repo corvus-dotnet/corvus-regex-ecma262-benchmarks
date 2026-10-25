@@ -77,6 +77,13 @@
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-r",
       "timeoutMinutes": 240
+    },
+    {
+      "id": "java",
+      "language": "Java",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-java",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-java"
     }
   ]
 }
