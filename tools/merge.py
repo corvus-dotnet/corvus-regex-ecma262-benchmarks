@@ -285,8 +285,7 @@ def page_text(here, test_data):
         "<p><b>A figure</b> is the time to count every match a global search finds over the whole text of a "
         "workload, moving on one character after an empty match as JavaScript's matchAll does, in nanoseconds per "
         "count. An ECMA-262 engine is given the workload's flags with u, and V8 the flags with g and u. An engine of "
-        "another dialect is given the pattern as it is with the workload's i, m and s flags, and has no figure where "
-        "the pattern does not compile.</p>"
+        "another dialect is given the pattern as it is with the workload's i, m and s flags.</p>"
     )
     measured = (
         "<p><b>How it is measured.</b> Every harness keeps to one protocol. The workloads run one after another, "
@@ -330,11 +329,10 @@ def page_text(here, test_data):
         "cell has no figure, and the engine is not ranked on that workload.</p>"
     )
     count = (
-        "<p><b>&ne; count</b> in a cell: the engine's count of matches on that workload differs from V8's, which is "
-        "a wrong answer. An ECMA-262 engine with one has no figure there, and each such workload is one more wrong "
-        "answer in the compliance beside its name, so it is never 100%. An engine of another dialect keeps its "
-        "figure, and the workload shows both counts. A cell marked failed says, in its tooltip, what the harness "
-        "reported.</p>"
+        "<p><b>&#x2715;</b> in a cell: the engine failed on that workload, and has no figure there. Its tooltip "
+        "says why: the pattern did not compile, the engine stopped with an error, or its count of matches differs "
+        "from V8's, which is a wrong answer whatever the engine's dialect. An ECMA-262 engine's wrong count is also "
+        "one more wrong answer in the compliance beside its name, so it is never 100%.</p>"
     )
     return lede, [what, figure, measured, where, compliance, stopped, count]
 
