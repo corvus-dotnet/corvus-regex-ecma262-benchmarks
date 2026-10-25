@@ -327,14 +327,12 @@ well if it was stopped at the limit. The results script turns this into the data
 The image writes one data file, `/out/industry.json`, in the page's shape, which is documented at the top of
 `site/generate_site.py` in this repository. The shape is also a JSON Schema (draft 2020-12),
 [`schema/results.schema.json`](../schema/results.schema.json), and [`schema/example.json`](../schema/example.json) is a
-small data file with every kind of result in it. Check your file against the schema before you publish it:
+small data file with every kind of result in it. Check your file against the schema before you publish it, with
+`schema/validate.py`, which uses the Corvus JSON Schema evaluator and prints where each failure is:
 
 ```sh
-python3 -m pip install jsonschema rfc3339-validator
-python3 -c "import json, sys; from jsonschema import Draft202012Validator, FormatChecker; \
-v = Draft202012Validator(json.load(open(sys.argv[1])), format_checker=FormatChecker()); \
-errors = [f'{list(e.path)}: {e.message}' for e in v.iter_errors(json.load(open(sys.argv[2])))]; \
-print('\n'.join(errors) or 'valid'); sys.exit(1 if errors else 0)" schema/results.schema.json out/industry.json
+python3 -m pip install corvus-json-schema
+python3 schema/validate.py out/industry.json
 ```
 
 The schema says everything a single file can be held to. The nightly build checks three more things it cannot say:
