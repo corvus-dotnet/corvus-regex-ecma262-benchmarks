@@ -23,7 +23,7 @@ beyond Python and Docker:
    place; the .NET image then runs at that same release).
 2. `tools/sources.py texts` downloads their texts once (dotnet/performance's gzipped files, the URLs of the .NET
    repository's `Inputs.cs`) into `~/.local/share/corvus-regex-benchmarks/`, cached between runs.
-3. `tools/sources.py run` pulls each source's `image` at the tag of the repository's newest GitHub release whose
+3. `tools/sources.py run` pulls each source's `image` (public, pulled without signing in) at the tag of the repository's newest GitHub release whose
    image can be pulled, a package release or a harness release (a release whose image is not published yet gives way
    to the one before it; `latest` only for a repository with no release at all), and runs it as the image contract
    below says, into `out-data/<id>/`, one source after another.
