@@ -84,6 +84,13 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-java",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-java"
+    },
+    {
+      "id": "go",
+      "language": "Go",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-go",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-go"
     }
   ]
 }
