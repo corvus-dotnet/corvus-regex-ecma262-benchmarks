@@ -54,7 +54,8 @@ says so.
 A result of null is a failure (the implementation did not complete the schema); an absent entry was not run. A
 result of {"limit": n} is a figure the harness stopped at its limit of n seconds: the page shows "> n s", the engine
 did not produce a result within n seconds. {"wrongCount": {"counted": n, "v8": m}} is a count of matches that differs
-from V8's, a wrong answer: the page shows "≠ count", and an engine with one is not shown as fully compliant.
+from V8's, a wrong answer whatever the engine: the page shows it as a failure (with both counts in its tooltip), and
+an ECMA-262 engine with one is not shown as fully compliant.
 {"error": "..."} is a failure with what the harness said, which the cell's tooltip shows. A
 part is either every run's value, in nanoseconds (or the unit the measure says), or a summary of it. Parts of a
 measure are summed, so "parse + warm" is a measure with two parts.

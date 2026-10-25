@@ -143,7 +143,6 @@ table.matrix { border-collapse: separate; border-spacing: 2px; font-family: var(
 .matrix td.fail { background: repeating-linear-gradient(45deg, var(--fail-a) 0 3px, var(--fail-b) 3px 6px); color: var(--muted); }
 .matrix td.miss { color: var(--muted); }
 .matrix td.stop { color: var(--muted); font-size: 0.85em; white-space: nowrap; }
-.matrix td.wrongcount { color: var(--slower); font-weight: 600; font-size: 0.85em; white-space: nowrap; }
 .matrix tr.current th { color: var(--accent); }
 /* Phones: the workload column is capped (the full name is the row's title) so the cells sit beside it rather than
    off-screen, the rotated headers are shorter, and a section header's picker takes the line's width. */
@@ -348,8 +347,8 @@ function measure(impl, schema, metric = state.metric) {
   else if (r === null) out = { state: "failed" };
   // A figure stopped at the harness's limit: the engine did not produce a result within that many seconds.
   else if (r.limit != null) out = { state: "stopped", limit: r.limit };
-  // A count of matches that differs from V8's: a wrong answer, with no figure.
-  else if (r.wrongCount) out = { state: "wrong", counted: r.wrongCount.counted, v8: r.wrongCount.v8 };
+  // A count of matches that differs from V8's is a wrong answer, whatever the engine: a failure, with no figure.
+  else if (r.wrongCount) out = { state: "failed", error: `counted ${Number(r.wrongCount.counted).toLocaleString("en")} matches where V8 counts ${Number(r.wrongCount.v8).toLocaleString("en")}` };
   // Any other failure the harness reported, with what it said.
   else if (r.error != null) out = { state: "failed", error: String(r.error) };
   else {
@@ -393,15 +392,12 @@ function ratio(impl, schema) {
 function stoppedText(m) {
   return `did not produce a result within ${m.limit} s`;
 }
-// The words for a count of matches that differs from V8's, and for a failure with what the harness said.
-function wrongText(m) {
-  return `wrong count: ${Number(m.counted).toLocaleString("en")} matches where V8 counts ${Number(m.v8).toLocaleString("en")}`;
-}
+// The words for a failure, with what the harness said or the count that differs from V8's.
 function failedText(m) {
   return m.error ? `${V.failed}: ${m.error}` : V.failed;
 }
 function resultText(m) {
-  return m.state === "failed" ? failedText(m) : m.state === "stopped" ? stoppedText(m) : m.state === "wrong" ? wrongText(m) : "not run";
+  return m.state === "failed" ? failedText(m) : m.state === "stopped" ? stoppedText(m) : "not run";
 }
 // The workloads on which an engine's count of matches differs from V8's.
 function wrongCounts(id) {
@@ -413,13 +409,12 @@ function geomean(xs) {
 }
 function summarise(impl) {
   const rs = [];
-  let failed = 0, missing = 0, stopped = 0, wrong = 0, best = 0;
+  let failed = 0, missing = 0, stopped = 0, best = 0;
   for (const s of DATA.schemas) {
     const m = measure(impl, s.name);
     if (m.state === "failed") failed++;
     else if (m.state === "missing") missing++;
     else if (m.state === "stopped") stopped++;
-    else if (m.state === "wrong") wrong++;
     const r = ratio(impl, s.name);
     if (Number.isFinite(r)) rs.push(r);
     if (m.state === "ok") {
@@ -431,7 +426,7 @@ function summarise(impl) {
       if (lowest && state.selected.has(impl)) best++;
     }
   }
-  return { impl, g: geomean(rs), n: rs.length, failed, missing, stopped, wrong, best };
+  return { impl, g: geomean(rs), n: rs.length, failed, missing, stopped, best };
 }
 function ranked() {
   return [...state.selected].map(summarise).sort((x, y) =>
@@ -798,7 +793,7 @@ function renderBoard() {
       svg.append(svgEl("text", { x: x0, y: cy + 4, class: "val", "pointer-events": "none" }, `no ${V.schema} completed`));
     }
     if (covW) {
-      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing - r.stopped - r.wrong}/${NS}`);
+      const cov = svgEl("text", { x: W - 4, y: cy + 4, "text-anchor": "end", class: "val", "pointer-events": "none" }, `${NS - r.failed - r.missing - r.stopped}/${NS}`);
       if (r.failed) cov.setAttribute("style", "fill: var(--slower)");
       svg.append(cov);
     }
@@ -830,7 +825,7 @@ function boardTip(id) {
       [`${V.Schemas} compared`, `${s.n} of ${NS}`],
       ["Fastest on", `${s.best} ${s.best === 1 ? V.schema : V.schemas}`],
       ["Failed", String(s.failed)],
-    ].concat(s.wrong ? [["Wrong count", String(s.wrong)]] : [], s.stopped ? [["No result within the limit", String(s.stopped)]] : [], s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
+    ].concat(s.stopped ? [["No result within the limit", String(s.stopped)]] : [], s.missing ? [["Not run", String(s.missing)]] : [], compliance(info) ? [["Compliance", compliance(info).long]] : []));
 }
 
 /* ---------- matrix ---------- */
@@ -860,7 +855,6 @@ function renderMatrix() {
       if (m.state === "failed") { body += `<td class="fail" data-tip="${key}">✕</td>`; continue; }
       if (m.state === "missing") { body += `<td class="miss" data-tip="${key}">·</td>`; continue; }
       if (m.state === "stopped") { body += `<td class="stop" data-tip="${key}">&gt; ${m.limit} s</td>`; continue; }
-      if (m.state === "wrong") { body += `<td class="wrongcount" data-tip="${key}">&ne; count</td>`; continue; }
       const r = ratio(id, s.name);
       const c = Number.isFinite(r) ? ratioColour(r) : { css: "transparent", L: 1 };
       const txt = state.cells === "value" ? fmtValue(m.median).replace(" ", " ") : fmtRatioShort(r);
@@ -880,7 +874,7 @@ function renderMatrix() {
     `<span class="ramp"><span>${leftLab}</span><i style="background:linear-gradient(90deg,${g.map(c => c.css).join(",")})"></i><span>${state.baseline === "best" ? "64×+" : span + "× " + worse()}</span></span>` +
     `<span>middle: ${midLab}</span>` +
     `<span><i class="sw" style="background:repeating-linear-gradient(45deg,var(--fail-a) 0 3px,var(--fail-b) 3px 6px);border:1px solid var(--line)"></i>failed</span>` +
-    `<span>· not run</span><span>&gt; 30 s: did not produce a result within 30 s</span><span>&ne; count: a count of matches that differs from V8's, a wrong answer</span><span>Click a ${V.schema} for its detail.</span>`;
+    `<span>· not run</span><span>&gt; 30 s: did not produce a result within 30 s</span><span>Click a ${V.schema} for its detail.</span>`;
 }
 function matrixTip(key) {
   // A workload's name can hold a | (a regular expression's alternation); an implementation's id never does.
