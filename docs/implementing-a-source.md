@@ -302,11 +302,12 @@ the harness's own V8 run or, with `V8=0`, the workload's `v8Count`, which the ni
 into the workloads. The nightly build writes a count into every workload or into none, and gives no image `V8=0`
 without them, so a harness given `V8=0` always has a count to check against.
 
-If an ECMA-262 engine's count differs, it gets no figure on that workload. Instead it gets the error
-`counted N where V8 counts M`, which the data file carries as `{"wrongCount": {"counted": N, "v8": M}}`. The page shows
-"≠ count" in that cell and counts it as one more wrong answer in the engine's compliance figure, so the figure is never
-100% (the tooltip names the workloads). An engine of another dialect keeps its figure,
-and the workload is marked with both counts.
+If an engine's count differs, whatever its dialect, it has given a wrong answer, and it gets no figure on that
+workload. Instead it gets the error `counted N where V8 counts M`, which the data file carries as
+`{"wrongCount": {"counted": N, "v8": M}}`. The page shows that cell as a failure (✕), with both counts in its tooltip.
+For an ECMA-262 engine it is also one more wrong answer in the compliance figure, so the figure is never 100% (the
+tooltip names the workloads). An engine of another dialect is held to the same rule: a wrong answer's time is not a
+figure, however fast it was.
 
 The test data cannot hold every shape a search for a start can get wrong. A wrong count on a workload is how one such
 fault was found: an engine counted 8,361 matches of `\b\w+n\b` over the Sherlock Holmes text, where V8 counts 8,366,
@@ -324,7 +325,19 @@ well if it was stopped at the limit. The results script turns this into the data
 ## The data file
 
 The image writes one data file, `/out/industry.json`, in the page's shape, which is documented at the top of
-`site/generate_site.py` in this repository.
+`site/generate_site.py` in this repository. The shape is also a JSON Schema (draft 2020-12),
+[`schema/results.schema.json`](../schema/results.schema.json), and [`schema/example.json`](../schema/example.json) is a
+small data file with every kind of result in it. Check your file against the schema before you publish it, with
+`schema/validate.py`, which uses the Corvus JSON Schema evaluator and prints where each failure is:
+
+```sh
+python3 -m pip install corvus-json-schema
+python3 schema/validate.py out/industry.json
+```
+
+The schema says everything a single file can be held to. The nightly build checks three more things it cannot say:
+that every engine id is unique, that `results` names only engines in `impls`, and that an exclusion of an encoding
+names the one encoding the judge has no calls in.
 
 - `meta`: the title, the repository, the commit, the date (ISO 8601 with its zone, such as
   `2026-10-24T05:00:00Z`), the workflow run's URL, the runner and the host as the

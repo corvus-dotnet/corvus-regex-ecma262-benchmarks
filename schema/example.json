@@ -1,0 +1,210 @@
+{
+  "meta": {
+    "title": "corvus-regex-ecma262 from Python: the Industry benchmarks",
+    "lede": "The Python package over str and bytes beside Python's re, the regex package and V8 over the Industry workloads of dotnet/performance.",
+    "repo": "corvus-dotnet/corvus-regex-ecma262-py",
+    "commit": "c7773d1",
+    "date": "2026-10-25T09:54:39Z",
+    "runUrl": "",
+    "runner": "",
+    "runs": 7,
+    "facts": [
+      [
+        "Host",
+        "AMD EPYC 7763 64-Core Processor, Linux 7.0.0-1017-azure, 4 cores (affinity 0-3), load 1.19 at the start"
+      ],
+      [
+        "Runtime",
+        "CPython 3.13.17"
+      ]
+    ],
+    "method": "<p>Each figure is one count of every match a global search finds over the whole text.</p>"
+  },
+  "vocab": {
+    "impl": "engine",
+    "impls": "engines",
+    "Impls": "Engines",
+    "schema": "workload",
+    "schemas": "workloads",
+    "Schema": "Workload",
+    "Schemas": "Workloads",
+    "failed": "did not run",
+    "centre": "Median",
+    "spread": "fastest to slowest round",
+    "barLegend": "median of the rounds",
+    "whiskerLegend": "whisker: the fastest and the slowest round"
+  },
+  "measures": {
+    "time": {
+      "label": "Time",
+      "long": "time per count",
+      "parts": [
+        "time"
+      ]
+    }
+  },
+  "impls": [
+    {
+      "id": "corvus-regex-ecma262 str",
+      "name": "corvus-regex-ecma262 str",
+      "group": "Python",
+      "version": "0.2.1",
+      "compliance": {
+        "right": 29953530,
+        "wrong": 0,
+        "refused": 0,
+        "acceptedInvalid": 0,
+        "limited": 0,
+        "judge": {
+          "runner": "https://github.com/corvus-dotnet/corvus-regex-ecma262-py/blob/main/tools/dataset.py",
+          "calls": {
+            "utf16": [
+              "Regex.test(str)",
+              "Regex.search(str)",
+              "Regex.search(array)",
+              "Regex.finditer(str)",
+              "Regex.replace(str)",
+              "Regex.replace_all(str)",
+              "Regex.split(str)"
+            ],
+            "utf8": [
+              "Regex.test(bytes)",
+              "Regex.search(bytes)",
+              "Regex.finditer(bytes)",
+              "Regex.replace(bytes)",
+              "Regex.replace_all(bytes)"
+            ]
+          }
+        },
+        "excludes": [
+          {
+            "class": "operations",
+            "leaves": [
+              "sticky"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "re",
+      "name": "re",
+      "group": "Python",
+      "version": "3.13.17",
+      "compliance": "not ECMA-262"
+    }
+  ],
+  "schemas": [
+    {
+      "name": "mariomka: [\\w\\.+-]+@[\\w\\.-]+\\.[\\w\\.-]+",
+      "note": "",
+      "meta": [
+        [
+          "text",
+          "mariomka (0.05 M chars)"
+        ]
+      ]
+    },
+    {
+      "name": "mariomka: [\\w]+://[^/\\s?#]+[^\\s?#]+(?:\\?[^\\s#]*...",
+      "note": "",
+      "meta": [
+        [
+          "text",
+          "mariomka (0.05 M chars)"
+        ]
+      ]
+    },
+    {
+      "name": "mariomka: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][...",
+      "note": "",
+      "meta": [
+        [
+          "text",
+          "mariomka (0.05 M chars)"
+        ]
+      ]
+    },
+    {
+      "name": "sherlock: Sherlock",
+      "note": "",
+      "meta": [
+        [
+          "text",
+          "Sherlock Holmes (0.6 M chars)"
+        ]
+      ]
+    },
+    {
+      "name": "sherlock: Holmes",
+      "note": "",
+      "meta": [
+        [
+          "text",
+          "Sherlock Holmes (0.6 M chars)"
+        ]
+      ]
+    }
+  ],
+  "results": {
+    "corvus-regex-ecma262 str": {
+      "mariomka: [\\w\\.+-]+@[\\w\\.-]+\\.[\\w\\.-]+": {
+        "time": {
+          "median": 182318.1,
+          "min": 181693.7,
+          "max": 183449.5
+        }
+      },
+      "mariomka: [\\w]+://[^/\\s?#]+[^\\s?#]+(?:\\?[^\\s#]*...": {
+        "time": {
+          "median": 1997632.7,
+          "min": 1988486.3,
+          "max": 2023303.2
+        }
+      },
+      "mariomka: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][...": {
+        "time": {
+          "median": 1110342.0,
+          "min": 1109496.8,
+          "max": 1121410.1
+        }
+      },
+      "sherlock: Sherlock": {
+        "time": {
+          "median": 32644.3,
+          "min": 31954.3,
+          "max": 32698.6
+        }
+      },
+      "sherlock: Holmes": {
+        "time": [
+          1210.5,
+          1198.2,
+          1204.9
+        ]
+      }
+    },
+    "re": {
+      "mariomka: [\\w\\.+-]+@[\\w\\.-]+\\.[\\w\\.-]+": {
+        "time": {
+          "median": 555059816.0,
+          "min": 550715059.0,
+          "max": 583682627.0
+        }
+      },
+      "mariomka: [\\w]+://[^/\\s?#]+[^\\s?#]+(?:\\?[^\\s#]*...": {
+        "wrongCount": {
+          "counted": 0,
+          "v8": 97
+        }
+      },
+      "mariomka: (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][...": {
+        "error": "the pattern does not compile"
+      },
+      "sherlock: Sherlock": {
+        "limit": 30
+      },
+      "sherlock: Holmes": null
+    }
+  }
+}

@@ -20,6 +20,14 @@ jobs:
         python-version: '3.12'
     - name: The tools compile
       run: python3 -m py_compile tools/*.py site/*.py
+    - name: The results schema is valid, and its example keeps to it and to the merge's check
+      # schema/results.schema.json is the contract a source's data file keeps to, checked by the Corvus JSON Schema
+      # evaluator (schema/validate.py); tools/merge.py's check() is what the nightly run holds a file to. The example
+      # must pass both, so that the two cannot drift apart unnoticed.
+      run: |
+        python3 -m pip install --quiet corvus-json-schema==0.1.1
+        python3 schema/validate.py schema/example.json
+        python3 -c "import json, runpy; why = runpy.run_path('tools/merge.py')['check'](json.load(open('schema/example.json'))); assert why is None, why; print('the example keeps to the merge check')"
     - name: Build the page from the published data
       run: |
         git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
