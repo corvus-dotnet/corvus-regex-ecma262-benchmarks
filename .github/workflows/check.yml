@@ -20,6 +20,23 @@ jobs:
         python-version: '3.12'
     - name: The tools compile
       run: python3 -m py_compile tools/*.py site/*.py
+    - name: The results schema is valid, and its example keeps to it and to the merge's check
+      # schema/results.schema.json is the contract a source's data file keeps to; tools/merge.py's check() is what the
+      # nightly run holds a file to. The example must pass both, so that the two cannot drift apart unnoticed.
+      run: |
+        python3 -m pip install --quiet jsonschema==4.26.0 rfc3339-validator==0.1.4
+        python3 - <<'PY'
+        import json, runpy
+        from jsonschema import Draft202012Validator, FormatChecker
+        schema = json.load(open("schema/results.schema.json"))
+        Draft202012Validator.check_schema(schema)
+        example = json.load(open("schema/example.json"))
+        errors = [f"{list(e.path)}: {e.message}" for e in Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(example)]
+        assert not errors, errors
+        why = runpy.run_path("tools/merge.py")["check"](example)
+        assert why is None, why
+        print("the schema is valid, and the example keeps to it and to the merge's check")
+        PY
     - name: Build the page from the published data
       run: |
         git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
