@@ -13,7 +13,7 @@
      "source": "https://github.com/dotnet/runtime/tree/main/src/libraries/System.Text.RegularExpressions"},
     {"name": "V8 (Irregexp)",
      "impls": ["dotnet/V8 (Node 24)", "rust/V8", "c/V8", "cpp/V8", "python/V8", "ruby/V8", "php/V8", "swift/V8",
-               "fortran/V8", "r/V8", "java/V8", "go/V8"],
+               "fortran/V8", "r/V8", "java/V8", "go/V8", "julia/V8"],
      "package": {"label": "part of Node.js", "url": "https://nodejs.org/"},
      "how": "Node.js 24's RegExp, with the workload's flags and g and u, its matches counted by a loop that advances lastIndex as matchAll does. The answers of the test data are V8's.",
      "source": "https://github.com/v8/v8/tree/main/src/regexp"},
@@ -187,6 +187,16 @@
      "impls": ["go/goja"],
      "package": {"label": "Go module", "url": "https://pkg.go.dev/github.com/dop251/goja"},
      "how": "goja's RegExp (a JavaScript engine written in Go), with the workload's flags and g and u, its matches counted by the same loop as V8's.",
-     "source": "https://github.com/dop251/goja"}
+     "source": "https://github.com/dop251/goja"},
+    {"name": "CorvusRegexEcma262.jl",
+     "impls": ["julia/corvus-regex-ecma262 UTF-8", "julia/corvus-regex-ecma262 UTF-16"],
+     "package": {"label": "Julia package", "url": "https://github.com/corvus-dotnet/corvus-regex-ecma262-jl"},
+     "how": "The package over UTF-8 (a Utf8Text, checked once) and over a Vector{UInt16} (UTF-16), with the workload's flags and u, counted with count.",
+     "source": "https://github.com/corvus-dotnet/corvus-regex-ecma262-jl"},
+    {"name": "Base.Regex",
+     "impls": ["julia/Base.Regex"],
+     "package": {"label": "part of Julia", "url": "https://docs.julialang.org/en/v1/manual/strings/#man-regex-literals"},
+     "how": "Julia's Regex (PCRE2 with its JIT) over a String, with the pattern as it is and the workload's i, m and s flags, its matches counted with count.",
+     "source": "https://github.com/JuliaLang/julia/blob/master/base/regex.jl"}
   ]
 }
