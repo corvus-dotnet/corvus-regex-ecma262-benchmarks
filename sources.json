@@ -98,6 +98,13 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-jl",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-jl"
+    },
+    {
+      "id": "pascal",
+      "language": "Object Pascal",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-pas",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-pas"
     }
   ]
 }
