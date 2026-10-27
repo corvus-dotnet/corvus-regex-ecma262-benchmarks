@@ -105,6 +105,13 @@
       "repo": "corvus-dotnet/corvus-regex-ecma262-pas",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-pas"
+    },
+    {
+      "id": "ocaml",
+      "language": "OCaml",
+      "repo": "corvus-dotnet/corvus-regex-ecma262-ocaml",
+      "ref": "latest-release",
+      "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-ocaml"
     }
   ]
 }

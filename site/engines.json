@@ -13,7 +13,7 @@
      "source": "https://github.com/dotnet/runtime/tree/main/src/libraries/System.Text.RegularExpressions"},
     {"name": "V8 (Irregexp)",
      "impls": ["dotnet/V8 (Node 24)", "rust/V8", "c/V8", "cpp/V8", "python/V8", "ruby/V8", "php/V8", "swift/V8",
-               "fortran/V8", "r/V8", "java/V8", "go/V8", "julia/V8", "pascal/V8"],
+               "fortran/V8", "r/V8", "java/V8", "go/V8", "julia/V8", "pascal/V8", "ocaml/V8"],
      "package": {"label": "part of Node.js", "url": "https://nodejs.org/"},
      "how": "Node.js 24's RegExp, with the workload's flags and g and u, its matches counted by a loop that advances lastIndex as matchAll does. The answers of the test data are V8's.",
      "source": "https://github.com/v8/v8/tree/main/src/regexp"},
@@ -207,6 +207,21 @@
      "impls": ["pascal/TRegExpr", "pascal/TRegExpr Unicode"],
      "package": {"label": "part of Free Pascal", "url": "https://wiki.freepascal.org/TRegExpr"},
      "how": "Free Pascal's TRegExpr in its two builds: the RegExpr unit over the bytes of the UTF-8 text, and the uRegExpr unit over its UTF-16, each with the pattern as it is and the workload's i, m and s flags, its matches counted by Exec and ExecNext.",
-     "source": "https://github.com/andgineer/TRegExpr"}
+     "source": "https://github.com/andgineer/TRegExpr"},
+    {"name": "corvus-regex-ecma262-ocaml",
+     "impls": ["ocaml/corvus-regex-ecma262 UTF-8", "ocaml/corvus-regex-ecma262 UTF-16"],
+     "package": {"label": "opam", "url": "https://opam.ocaml.org/packages/corvus-regex-ecma262/"},
+     "how": "The library over UTF-8 (a utf8_text, checked once) and over a string of UTF-16LE, with the workload's flags and u, counted with count_text and count_utf16.",
+     "source": "https://github.com/corvus-dotnet/corvus-regex-ecma262-ocaml"},
+    {"name": "re (ocaml-re)",
+     "impls": ["ocaml/re"],
+     "package": {"label": "opam", "url": "https://opam.ocaml.org/packages/re/"},
+     "how": "ocaml-re through its Perl syntax, with the pattern as it is and the workload's i, m and s flags, its matches counted by a loop of searches that goes on one character past an empty match.",
+     "source": "https://github.com/ocaml/ocaml-re"},
+    {"name": "pcre2 (OCaml binding)",
+     "impls": ["ocaml/pcre2"],
+     "package": {"label": "opam", "url": "https://opam.ocaml.org/packages/pcre2/"},
+     "how": "The OCaml binding to PCRE2, which offers no JIT, in UTF mode, with the pattern as it is and the workload's i, m and s flags, the text checked as UTF-8 once and not at each search, its matches counted by a loop of searches.",
+     "source": "https://github.com/camlp5/pcre2-ocaml"}
   ]
 }
