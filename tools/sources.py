@@ -137,7 +137,13 @@ def workloads(args):
     tags = releases(source["repo"])
     # The newest release whose image is published, so that the image the run pulls is the release the workloads come
     # from; with none pullable, the newest release (the source is then shown as not run, the others still run).
-    tag = (pullable(source["image"], tags) if source.get("image") else None) or (tags[0] if tags else "latest")
+    # Published means its manifest can be read, for any architecture, so that the x86-64 and arm64 runs take their
+    # workloads from the same release whichever architectures its image is built for; a pull decides only where the
+    # manifest cannot be read.
+    tag = None
+    if source.get("image"):
+        tag = next((t for t in tags or ["latest"] if built_for(source["image"], t)), None) or pullable(source["image"], tags)
+    tag = tag or (tags[0] if tags else "latest")
     path = os.path.abspath(os.path.join(args.work, source["id"]))
     command = ["git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1"]
     branch = [] if tag == "latest" else ["--branch", tag]
