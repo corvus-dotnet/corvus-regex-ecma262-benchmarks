@@ -32,5 +32,12 @@ jobs:
       run: |
         git fetch --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
         git worktree add --detach previous origin/gh-pages
-        python3 tools/build_site.py --data previous/data/latest.json --previous previous --out site-out
+        python3 tools/build_site.py --data previous/data/latest.json --previous previous --out site-out --arch x86_64 \
+          --architectures x86_64,arm64
         test -s site-out/index.html
+        # The arm64 page, from the same data here only to check that it builds and that each page links to the other.
+        python3 tools/build_site.py --data previous/data/latest.json --previous previous/arm64 --out site-out/arm64 \
+          --arch arm64 --architectures x86_64,arm64 --no-day
+        test -s site-out/arm64/index.html
+        grep -q '"href":"arm64/"' site-out/index.html
+        grep -q '"href":"../","current":false' site-out/arm64/index.html

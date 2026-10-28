@@ -210,6 +210,7 @@ table.engines { border-collapse: collapse; width: 100%; font-size: 14px; }
 
 <div class="controls gutter">
   <div class="wrap">
+    <div class="ctl" id="arch-ctl" hidden><label for="arch">Architecture</label><select id="arch"></select></div>
     <div class="ctl"><span class="ctl-label">Measure</span><div class="seg" id="metric" role="group" aria-label="Measure"></div></div>
     <div class="ctl"><label for="baseline">Compare with</label><select id="baseline"></select></div>
     <details class="picker ctl" id="picker">
@@ -1083,6 +1084,16 @@ function init() {
   bits.push(`<div class="break"></div><div><span>${esc(V.Impls)}</span> ${ALL.length}</div><div><span>${esc(V.Schemas)}</span> ${NS}</div>`);
   if (meta.runs) bits.push(`<div><span>Runs each</span> ${meta.runs}</div>`);
   document.getElementById("runmeta").innerHTML = bits.join("");
+
+  // Each architecture has a page of its own (meta.architectures, written by tools/build_site.py), and no figure is
+  // compared across them: the select goes to the other page, keeping the view's settings, which live in the hash.
+  const arches = Array.isArray(meta.architectures) ? meta.architectures : [];
+  if (arches.length > 1) {
+    const pick = document.getElementById("arch");
+    pick.innerHTML = arches.map(a => `<option value="${esc(a.href)}"${a.current ? " selected" : ""}>${esc(a.label)}</option>`).join("");
+    pick.addEventListener("change", e => { location.href = e.target.value + location.hash; });
+    document.getElementById("arch-ctl").hidden = false;
+  }
 
   const metricHost = document.getElementById("metric");
   metricHost.innerHTML = Object.entries(METRICS).map(([k, m]) => `<button type="button" data-metric="${k}">${esc(m.label)}</button>`).join("");

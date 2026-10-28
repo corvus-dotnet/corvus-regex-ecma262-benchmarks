@@ -36,7 +36,8 @@
         has the sources it ran: per source, the data file (when it has the results-page shape), the image and tag
         that ran, the image's digest, the time it ran, and this machine's description. An image that cannot be
         pulled, fails or writes no usable file is recorded as such; tools/merge.py then shows the source as not run
-        tonight. Each source's limit (timeoutMinutes) covers its pull and its run; a container still running at its
+        tonight. So is an image with no build for this machine's architecture (runs.json's architecture, x86_64 or
+        arm64): the nightly runs every source on each, and an image built for x86-64 alone is not run on arm64. Each source's limit (timeoutMinutes) covers its pull and its run; a container still running at its
         limit is killed and removed before the next source starts. With --budget-minutes, no source runs past that
         many minutes from the start: each is given the less of its own limit and the time left, and one that would
         start with less than 10 minutes left is recorded as not run, with the minutes there were. Each image is removed
@@ -166,6 +167,43 @@ def texts(args):
             f.write(data)
         os.replace(path + ".part", path)
         log(f"{name}: downloaded, {len(data):,} bytes")
+
+
+def architecture():
+    """The machine's architecture as the page names it: x86_64 or arm64 (or what Python reports for another)."""
+    machine = platform.machine().lower()
+    return {"amd64": "x86_64", "x86_64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}.get(machine, machine)
+
+
+# The architecture of an image as Docker records it, for each architecture the page names.
+IMAGE_ARCHITECTURE = {"x86_64": "amd64", "arm64": "arm64"}
+
+
+def image_architecture(image, tag):
+    """The architecture of a pulled image (amd64, arm64, ...), or "" when it cannot be read."""
+    return subprocess.run([ENGINE, "image", "inspect", "--format", "{{.Architecture}}", f"{image}:{tag}"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def built_for(image, tag):
+    """The Linux architectures an image's tag is built for (amd64, arm64, ...), read from its manifest without pulling
+    it, or None when that cannot be read: a multi-platform index lists each, and a single image names its own."""
+    try:
+        out = subprocess.run([ENGINE, "manifest", "inspect", "--verbose", f"{image}:{tag}"], capture_output=True,
+                             text=True, timeout=120)
+        entries = json.loads(out.stdout) if out.returncode == 0 else None
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        return None
+    if isinstance(entries, dict):
+        entries = [entries]
+    if not isinstance(entries, list):
+        return None
+    found = set()
+    for entry in entries:
+        platform_ = ((entry or {}).get("Descriptor") or {}).get("platform") or {}
+        if platform_.get("os") == "linux" and platform_.get("architecture"):
+            found.add(platform_["architecture"])
+    return found or None
 
 
 def describe_machine():
@@ -352,7 +390,8 @@ def run(args):
             pinned = json.load(f)
     except (OSError, ValueError):
         pinned = {}
-    runs = {"machine": describe_machine(), "started": now(), "sources": {}}
+    arch = architecture()
+    runs = {"machine": describe_machine(), "architecture": arch, "started": now(), "sources": {}}
     pin = test_data(args.sources)
     if data_dir and pin:
         # With the number of answers the data asks in each encoding, which every engine's compliance is a share of.
@@ -415,11 +454,26 @@ def run(args):
                 record["error"] = f"its releases could not be read ({e})"
                 log(f"{sid}: {record['error']}")
                 continue
+        # An image with no build for this machine is not pulled: on the arm64 runner that would be every image built
+        # for x86-64 alone, gigabytes each, to no end.
+        newest = (tags or ["latest"])[0]
+        platforms = built_for(image, newest)
+        if platforms and IMAGE_ARCHITECTURE.get(arch, arch) not in platforms:
+            record["error"] = f"its image {image}:{newest} has no build for {arch} (it is built for {', '.join(sorted(platforms))})"
+            log(f"{sid}: {record['error']}")
+            continue
         disk()
         tag = pullable(image, tags, timeout=max(1, remaining()))
         if not tag:
             record["error"] = f"no release of its image {image} could be pulled ({', '.join(tags[:5]) or 'latest'})"
             log(f"{sid}: {record['error']}")
+            continue
+        # An image of one architecture pulls on a machine of another with only a warning, and then fails to start.
+        built = image_architecture(image, tag)
+        if built and built != IMAGE_ARCHITECTURE.get(arch, arch):
+            record["error"] = f"its image {image}:{tag} has no build for {arch} (it is built for {built})"
+            log(f"{sid}: {record['error']}")
+            docker("image", "rm", f"{image}:{tag}", timeout=300, quiet=True)
             continue
         record["image"], record["tag"] = image, tag
         digest = subprocess.run([ENGINE, "image", "inspect", "--format", "{{index .RepoDigests 0}}", f"{image}:{tag}"],
@@ -471,7 +525,9 @@ def run(args):
             record["error"] = problem
         else:
             log(f"{sid}: done")
-            record["file"] = data
+            # Relative to runs.json, so that the merge finds it wherever the run's files are taken (the publish job
+            # merges them on another runner).
+            record["file"] = os.path.relpath(data, args.out)
             with open(data, encoding="utf-8") as f:
                 if any(is_v8(i) for i in json.load(f)["impls"]):
                     v8_delivered = True

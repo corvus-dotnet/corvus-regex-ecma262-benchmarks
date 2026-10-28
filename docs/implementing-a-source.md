@@ -389,7 +389,7 @@ It takes these variables:
 - `JOB=short`: the quick look, for smoke runs.
 - `COUNT_GATE=1`: the count gate alone (see above), for CI.
 
-The image holds each engine built as a program would use it, the harness, the runners, and Node 24.22.0. That is the
+The image holds each engine built as a program would use it, the harness, the runners, and Node 24.22.1. That is the
 Node version that wrote the test data, so the image's V8 answers are the data's own. (`dataset.mjs` judges each file in
 a process of its own, as the data's `verify.js` does.)
 
@@ -399,6 +399,10 @@ The workflow (`.github/workflows/harness-image.yml`) runs on pull requests, on `
 2. Smoke-run it over two workloads with `JOB=short`, and check the data file's engines, workloads and compliance.
 3. Run the count gate: fetch the five texts and run the image with `COUNT_GATE=1` over every workload.
 4. Publish `:latest` from `main`, and the release's tag from a release.
+
+Publish the image for `linux/amd64` and `linux/arm64`, each built on a runner of its own architecture and joined into
+one multi-platform tag. The nightly runs every source on an x86-64 runner and an arm64 runner, and the page has a page
+for each architecture. An image with no arm64 build is listed on the arm64 page as not run, with that reason.
 
 ### Releases
 

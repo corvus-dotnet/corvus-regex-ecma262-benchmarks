@@ -1,9 +1,10 @@
-# Runs every Corvus ECMA-262 regex engine on one runner and publishes one page from the runs.
+# Runs every Corvus ECMA-262 regex engine on two runners, an x86-64 one and an arm64 one, in parallel, and publishes a
+# page for each architecture from its runs. No figure is ever compared across the two: each page reads its own run.
 #
 # The nightly schedule and a run by hand run every engine; a push to main (a change to the page or the tools) only
 # builds the page again from the data already published, in a minute, and runs no image.
 #
-# One job: write the Industry workloads once (the .NET repository's workloads.py, at its newest release) and
+# The run job, once for each architecture: write the Industry workloads once (the .NET repository's workloads.py, at its newest release) and
 # download their texts once (cached), then for each source of sources.json pull its container image at the tag of
 # its newest release whose image can be pulled (latest only for a repository with no release) and run it (tools/sources.py run: `docker run --rm -v workloads.json:/workloads.json:ro
 # -v <texts>:/texts:ro -v out-data/<id>:/out <image>`, which writes /out/industry.json). No toolchain is installed
@@ -13,10 +14,12 @@
 # (--budget-minutes; no source starts with less than 10 minutes left, and a container whose time runs out is killed
 # and removed before the next source starts), and runs.json is written after each, so a night cut short still
 # publishes what ran.
-# tools/merge.py merges the files; a source whose image cannot be pulled or fails is
-# shown as not run tonight, so every figure was measured here. The page and the data are published to gh-pages:
-# the page at the root, data/latest.json, and data/runs/<yyyy-mm-dd>.json kept per day (the day of the run, from the
-# data's date; a push writes none), in one commit that replaces the branch.
+# An image with no build for the runner's architecture is recorded as such and not run (the arm64 page has the engines
+# whose images are built for arm64). The publish job then merges each architecture's files (tools/merge.py); a source
+# whose image cannot be pulled or fails is shown as not run tonight, so every figure was measured on that page's
+# runner. The pages and the data are published to gh-pages: x86-64's page at the root, with data/latest.json and
+# data/runs/<yyyy-mm-dd>.json kept per day (the day of the run, from the data's date; a push writes none), and arm64's
+# the same under arm64/, in one commit that replaces the branch.
 name: build
 
 on:
@@ -34,8 +37,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  run:
+    # Every source's image on each architecture, in parallel; each job keeps what its images wrote as an artifact.
+    name: Run the images (${{ matrix.arch }})
+    if: github.event_name != 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: x86_64
+          runner: ubuntu-latest
+        - arch: arm64
+          runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 340
     steps:
     - uses: actions/checkout@v4
@@ -45,7 +59,7 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         # The Node of the harness images, whose V8 counts each workload once for every image (the counts step).
-        node-version: '24.22.0'
+        node-version: '24.22.1'
     - name: Write the workloads
       # The list comes from one place, the .NET repository's workloads.py, at its newest release whose image can be
       # pulled (kept in work/pins.json, so that the .NET image runs at the same release). Without it no image can run,
@@ -97,11 +111,36 @@ jobs:
       if: always() && github.event_name != 'push'
       uses: actions/upload-artifact@v4
       with:
-        name: runs-${{ github.run_id }}
+        name: runs-${{ matrix.arch }}-${{ github.run_id }}
         if-no-files-found: ignore
         path: |
           out-data
           workloads.json
+
+  publish:
+    # Merges each architecture's runs and publishes its page; on a push, builds the pages again from the published data.
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Download the runs
+      if: github.event_name != 'push'
+      uses: actions/download-artifact@v4
+      with:
+        pattern: runs-*-${{ github.run_id }}
+        path: artifacts
+    - name: Sort the runs by architecture
+      if: github.event_name != 'push'
+      run: |
+        for arch in x86_64 arm64; do
+          mkdir -p runs/$arch
+          if [ -d "artifacts/runs-$arch-$GITHUB_RUN_ID" ]; then cp -r "artifacts/runs-$arch-$GITHUB_RUN_ID/." runs/$arch/; fi
+        done
     - name: Fetch the published site
       # The days already published are kept; the first run finds no branch and starts the list. Only a branch that is
       # not there starts it (git ls-remote exits 2): any other failure to read it fails the step, so a network fault
@@ -123,22 +162,55 @@ jobs:
           echo "exists=true" >> "$GITHUB_OUTPUT"
         fi
     - name: Merge the runs
+      # Each architecture's runs on their own. A runner whose job wrote nothing still gets a page, every source on it
+      # shown as not run.
       if: github.event_name != 'push'
       run: |
-        runs=()
-        if [ -f out-data/runs.json ]; then runs=(--runs out-data/runs.json); fi
-        python3 tools/merge.py "${runs[@]}" --out out-data/latest.json --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        for arch in x86_64 arm64; do
+          dir=runs/$arch/out-data
+          mkdir -p "$dir"
+          runs=()
+          if [ -f "$dir/runs.json" ]; then runs=(--runs "$dir/runs.json"); fi
+          if python3 tools/merge.py "${runs[@]}" --out "merged/$arch/latest.json" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; then
+            continue
+          fi
+          rm -f "merged/$arch/latest.json"
+          # x86-64 has run every night since the page began, so a night with nothing from it fails the build. arm64
+          # has nothing until the first image is built for it; a page it already has is kept as published (the
+          # branch is replaced whole), and the Build step writes no day for it.
+          if [ "$arch" = x86_64 ]; then exit 1; fi
+          if [ -f previous/arm64/data/latest.json ]; then
+            python3 tools/merge.py --restate previous/arm64/data/latest.json --out merged/arm64/latest.json
+            touch merged/arm64/kept
+          fi
+        done
     - name: The data already published
-      # A push builds the page again from the published data: no image has run. The page's text (title, lede, the
+      # A push builds the pages again from the published data: no image has run. The page's text (title, lede, the
       # "How to read this" section and the rows' labels) is made again by this commit's merge.py, so that a change to
-      # it reaches the page now and not at the next night's run.
+      # it reaches the page now and not at the next night's run. An architecture with no page published yet gets none.
       if: github.event_name == 'push'
       run: |
-        mkdir -p out-data
-        python3 tools/merge.py --restate previous/data/latest.json --out out-data/latest.json
+        mkdir -p merged/x86_64
+        python3 tools/merge.py --restate previous/data/latest.json --out merged/x86_64/latest.json
+        if [ -f previous/arm64/data/latest.json ]; then
+          mkdir -p merged/arm64
+          python3 tools/merge.py --restate previous/arm64/data/latest.json --out merged/arm64/latest.json
+        fi
     - name: Build the site
-      # A push ran no image, so it writes no day file: the day of the data it builds from is already published.
-      run: python3 tools/build_site.py --data out-data/latest.json --previous previous --out site-out ${{ github.event_name == 'push' && '--no-day' || '' }}
+      # A page for each architecture with data, each linking to the others. A push ran no image, so it writes no day
+      # file: the day of the data it builds from is already published.
+      env:
+        NO_DAY: ${{ github.event_name == 'push' && '--no-day' || '' }}
+      run: |
+        present=$(for arch in x86_64 arm64; do [ -f "merged/$arch/latest.json" ] && echo "$arch"; done | paste -sd, -)
+        python3 tools/build_site.py --data merged/x86_64/latest.json --previous previous --out site-out --arch x86_64 \
+          --architectures "$present" $NO_DAY
+        if [ -f merged/arm64/latest.json ]; then
+          arm_day=$NO_DAY
+          if [ -f merged/arm64/kept ]; then arm_day=--no-day; fi
+          python3 tools/build_site.py --data merged/arm64/latest.json --previous previous/arm64 --out site-out/arm64 \
+            --arch arm64 --architectures "$present" $arm_day
+        fi
     - name: Publish to gh-pages
       if: github.ref == 'refs/heads/main'
       env:
