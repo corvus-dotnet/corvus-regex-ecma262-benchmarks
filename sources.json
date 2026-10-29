@@ -95,7 +95,7 @@
     {
       "id": "julia",
       "language": "Julia",
-      "repo": "corvus-dotnet/corvus-regex-ecma262-jl",
+      "repo": "corvus-dotnet/CorvusRegexECMA262.jl",
       "ref": "latest-release",
       "image": "ghcr.io/corvus-dotnet/corvus-regex-ecma262-jl"
     },
