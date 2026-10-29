@@ -11,9 +11,14 @@
 Every path is relative, so the site works under any base path (it is served at /corvus-regex-ecma262-benchmarks/).
 Python 3 standard library only.
 
+Each architecture has a page of its own, built by a call of its own from that architecture's data: x86-64 at the root
+of the site and arm64 under arm64/ (out and previous are then that architecture's directory). --architectures names
+every architecture the site has a page for, and the page's Architecture select links to each; no figure is ever
+compared across them.
+
 Usage:
     python3 tools/build_site.py --data data/latest.json --out out [--previous <the published site>] [--date yyyy-mm-dd]
-                                [--no-day]
+                                [--no-day] [--arch x86_64|arm64] [--architectures x86_64,arm64]
 """
 
 import argparse
@@ -31,6 +36,20 @@ from merge import site_links  # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 DAY = re.compile(r"^(\d{4}-\d{2}-\d{2})\.json$")
+# The architectures the site can have a page for, in the order of the page's select, with their labels.
+ARCHITECTURES = {"x86_64": "x86-64", "arm64": "arm64"}
+
+
+def page_dir(arch):
+    """The directory of an architecture's page under the site's root: the root for x86-64, its name for another."""
+    return "" if arch == "x86_64" else f"{arch}/"
+
+
+def architecture_links(arch, present):
+    """The page's Architecture select: each architecture the site has a page for, linked relative to this page."""
+    root = "" if arch == "x86_64" else "../"
+    return [{"id": a, "label": ARCHITECTURES[a], "href": (root + page_dir(a)) or "./", "current": a == arch}
+            for a in ARCHITECTURES if a in present]
 
 
 def day_of(data):
@@ -47,6 +66,8 @@ def main():
     parser.add_argument("--previous", help="A copy of the published site, whose data/runs are kept.")
     parser.add_argument("--date", help="The day file's name; by default the day of the run, the data's meta.date.")
     parser.add_argument("--no-day", action="store_true", help="Write no day file: the build ran no image (a push).")
+    parser.add_argument("--arch", choices=sorted(ARCHITECTURES), help="The page's architecture; by default the data's.")
+    parser.add_argument("--architectures", help="Every architecture the site has a page for, comma-separated.")
     args = parser.parse_args()
 
     runs = os.path.join(args.out, "data", "runs")
@@ -69,6 +90,11 @@ def main():
     links = data["meta"].get("links", [])
     labels = {l.get("label") for l in links}
     data["meta"]["links"] = [l for l in site_links() if l["label"] not in labels] + links
+    # Data merged before the arm64 run has no architecture: it was all measured on x86-64.
+    arch = args.arch or data["meta"].get("architecture") or "x86_64"
+    present = (args.architectures or arch).split(",")
+    data["meta"]["architecture"] = arch
+    data["meta"]["architectures"] = architecture_links(arch, present)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as page_data:
         json.dump(data, page_data)
     try:

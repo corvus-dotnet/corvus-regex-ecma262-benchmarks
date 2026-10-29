@@ -16,13 +16,18 @@ It is rebuilt every night. (The schedule says 03:30 UTC, but GitHub usually gets
 later.) The merged data sits beside the page in `data/latest.json`, and every day's data is kept under `data/runs/`,
 named for the day it was measured. Rebuilding the page after a push to this repository doesn't add a day.
 
+There's a page for each processor architecture, chosen with the Architecture filter at the top: x86-64 at the root and
+arm64 under `arm64/`, each with its own `data/latest.json` and `data/runs/`. No figure is ever compared across them.
+
 Anyone can add an engine. See [implementing a source](docs/implementing-a-source.md).
 
 ## Why everything runs here
 
 You can't compare figures measured on different machines. So rather than collect each engine repository's own
-results, the nightly workflow here runs every engine itself. One job, on one runner, runs each engine repository's
-published container image in turn. Every figure on the page was measured on the same machine, in the same night's run.
+results, the nightly workflow here runs every engine itself. One job on an x86-64 runner, and one on an arm64 runner
+alongside it, each runs every engine repository's published container image in turn. Every figure on a page was
+measured on that page's machine, in the same night's run. An image with no build for the runner's architecture is shown
+as not run on that architecture's page.
 
 There's no fallback. If a source's image can't be pulled, fails, or writes a data file in the wrong shape, the page
 shows that source as "not run tonight" (with the reason), and its engines have no rows that night. The previous
@@ -286,7 +291,8 @@ python3 tools/sources.py texts --workloads workloads.json
 python3 tools/sources.py run --workloads workloads.json --out out-data
 python3 tools/merge.py --runs out-data/runs.json --out data/latest.json
 python3 tools/build_site.py --data data/latest.json --out out
-# then open out/index.html
+# then open out/index.html; on an arm64 machine the run is arm64's, and its page goes under out/arm64:
+# python3 tools/build_site.py --data data/latest.json --out out/arm64 --arch arm64 --architectures x86_64,arm64
 ```
 
 To try a source's data before it's published, point its `url` at a local path in a copy of the manifest, and pass

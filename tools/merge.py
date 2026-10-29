@@ -494,6 +494,9 @@ def merge(sources, run_url="", runs=None):
         "links": links,
         "method": "".join(method),
     }
+    if runs and runs.get("architecture"):
+        # The processor the run was on (x86_64 or arm64): each has its own page, and no figure is compared across them.
+        meta["architecture"] = runs["architecture"]
     if runs and runs.get("testData"):
         # The pin of the test data and the answers it asks in each encoding, which the page's compliance figures use.
         meta["testData"] = runs["testData"]
@@ -554,6 +557,11 @@ def main():
     if args.runs:
         with open(args.runs, encoding="utf-8") as f:
             runs = json.load(f)
+        # A data file is named relative to runs.json (an older run named it absolutely, where it ran).
+        here = os.path.dirname(os.path.abspath(args.runs))
+        for ran in runs.get("sources", {}).values():
+            if isinstance(ran, dict) and ran.get("file") and "://" not in ran["file"] and not os.path.isabs(ran["file"]):
+                ran["file"] = os.path.join(here, ran["file"])
     used, data = merge(sources, args.run_url, runs)
     if not used:
         raise SystemExit("merge: no source could be read, so there is nothing to publish")
